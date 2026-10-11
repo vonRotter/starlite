@@ -1,17 +1,16 @@
 // Balance check: lets a "middels" AI play the player's side in every
 // campaign mission and reports whether it wins and how long it takes.
 // Usage: node tests/campaign.js [comma separated mission numbers]
-const path = require('path');
-let chromium;
-try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = require(require('child_process').execSync('npm root -g').toString().trim() + '/playwright')); }
+const { serve, launch } = require('./serve');
 
 const only = process.argv[2] ? process.argv[2].split(',').map(Number) : null;
 (async () => {
-  const browser = await chromium.launch();
+  const server = await serve();
+  const browser = await launch();
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message + '\n' + e.stack));
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
+  await page.goto(server.url);
   await page.waitForFunction(() => typeof App !== 'undefined' && App.game, null, { timeout: 60000 });
   for (const level of ['lett', 'middels']) {
     const res = await page.evaluate(([level, process_only]) => {
@@ -34,5 +33,6 @@ const only = process.argv[2] ? process.argv[2].split(',').map(Number) : null;
     console.table(res);
   }
   await browser.close();
+  server.close();
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
 })();

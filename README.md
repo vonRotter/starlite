@@ -2,21 +2,26 @@
 
 *Mal verden fargerik igjen!* (Paint the world colourful again!)
 
-Starlite is a real-time strategy game for children aged 6–9. It is inspired by StarCraft 1 and 2, but the unit rosters are much smaller, the art is bright and cartoony with paint splats everywhere, and the story is about friendship. All in-game text is in Norwegian (bokmål).
+Starlite is a real-time strategy game for children aged 6–9. It is inspired by StarCraft 1 and 2, but the unit rosters are much smaller, the story is about friendship, and the look is glossy, toy-like 3D with paint splats everywhere (in the spirit of Splatoon), seen from a fixed tilted camera. All in-game text is in Norwegian (bokmål).
 
 Nothing gets hurt. Units shoot paint. When a unit runs out of health, it falls over and goes *Poff!*, and the ground under it gets painted in the attacker's colour. Buildings go *SPLASJ!*.
 
 ## Play
 
-Open `index.html` in a modern browser (Chrome, Edge, Firefox, or Safari). You don't need to install or build anything, and it also works straight from the file system.
+The game is a static web page with no build step, but it must be **served over http(s)**. Browsers refuse to load the three.js ES modules from `file://`, so double-clicking `index.html` gives the older flat 2D view instead.
 
-To serve it locally instead:
+- **Online:** publish it with GitHub Pages (see below) and open the link.
+- **Locally:** run `npm start` (or any static server, such as `npx http-server -c-1 .`) and open the address it prints.
 
-```sh
-npx http-server -c-1 .
-```
+It runs in current Chrome, Edge, Firefox, and Safari, on desktop and tablets. Add `?2d` to the address to force the flat 2D renderer. The game also falls back to it automatically when WebGL is unavailable. It uses the Fredoka font from Google Fonts when online and a rounded system font otherwise.
 
-The game runs on desktop and tablets. It uses the Fredoka font from Google Fonts when online and falls back to a rounded system font offline.
+### Publishing on GitHub Pages
+
+The workflow in `.github/workflows/pages.yml` publishes the game.
+
+1. In the repository on GitHub, open **Settings → Pages**. Under **Build and deployment**, set **Source** to **GitHub Actions**.
+2. Push to `main`, or open **Actions → Deploy to GitHub Pages → Run workflow**.
+3. The game appears at `https://<user>.github.io/<repository>/`.
 
 ## How to play
 
@@ -78,21 +83,31 @@ js/map.js         map generation and A* path finding
 js/paint.js       the paint layer and coverage tracking
 js/game.js        simulation: units, combat, gathering, objectives
 js/ai.js          computer opponent
-js/art.js         procedural cartoon art (units, buildings, portraits)
-js/render.js      world and minimap rendering
+js/models3d.js    glossy 3D models (three.js)
+js/render3d.js    three.js renderer, overlay and 3D icons
+js/art.js         2D cartoon art (portraits, 2D fallback)
+js/render.js      2D renderer (fallback, ground texture, minimap)
 js/audio.js       synthesised sound effects, music, read-aloud
 js/story.js       campaign missions, dialogue, free-play setup
 js/input.js       mouse, touch and keyboard
 js/hud.js         in-game HUD
 js/main.js        screens, dialogue, main loop
+vendor/three/     three.js r170 and two add-ons
 tests/            headless browser tests (Playwright)
 ```
 
 All graphics and sounds are generated in code, so the game has no image or audio files.
 
+### Graphics
+
+- `js/models3d.js` builds every unit, building, and crystal from three.js primitives. The models use glossy materials, dark back-face "hull" outlines for the cartoon edge, and googly eyes. Units bob, hop, flap, and swing their weapons. Buildings rise from the ground while under construction. Grey (gloomy) teams get angry eyebrows.
+- `js/render3d.js` mirrors the simulation into a three.js scene every frame. The camera is a fixed orthographic camera tilted 40°, so screen x maps straight to world x, which keeps clicking simple. The scene has soft sun shadows, a floating-island map, instanced trees, rocks, clouds, and water, and the paint layer is a glossy texture on the ground. Health bars and popup text are drawn on a 2D overlay. Button and menu icons are rendered from the same 3D models.
+- three.js r170 is bundled in `vendor/three` (MIT licence, see `vendor/three/LICENSE`), so the game needs no CDN.
+- The simulation (`game.js`, `ai.js`, `map.js`) does not depend on the renderer. `js/render.js` and `js/art.js` hold the original 2D renderer, which is used as the fallback and to draw the ground texture, minimap, and character portraits.
+
 ## Tests
 
-The tests drive the real game in headless Chromium:
+The tests start a small local web server and drive the real game in headless Chromium with software WebGL:
 
 ```sh
 npm install           # installs Playwright (or use a global install)

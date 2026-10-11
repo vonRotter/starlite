@@ -1,19 +1,19 @@
 // Headless smoke test: loads the game, runs AI-vs-AI simulations for all
 // faction pairs, plays through the campaign setups and checks for errors.
 // Usage: node tests/smoke.js [screenshotDir]
-const path = require('path');
-let chromium;
-try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = require(require('child_process').execSync('npm root -g').toString().trim() + '/playwright')); }
+const { serve, launch } = require('./serve');
 
 (async () => {
   const shots = process.argv[2];
-  const browser = await chromium.launch();
+  const server = await serve();
+  const browser = await launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message + '\n' + e.stack));
   page.on('console', (m) => { if (m.type() === 'error' && !/fonts\.g/.test(m.text()) && !/ERR_/.test(m.text())) errors.push('console: ' + m.text()); });
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
+  await page.goto(server.url);
   await page.waitForFunction(() => typeof App !== 'undefined' && App.game, null, { timeout: 60000 }).catch((e) => { console.error(errors.join('\n')); throw e; });
+  if (!(await page.evaluate(() => App.is3D))) errors.push('the three.js renderer did not start');
   await page.waitForTimeout(1500);
   if (shots) await page.screenshot({ path: shots + '/menu.png' });
 
@@ -118,12 +118,13 @@ try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = requ
   await page.waitForTimeout(300);
   const basePos = await page.evaluate(() => {
     const g = App.game, b = g.buildings.find((x) => x.team === 0);
-    return { x: (b.x - App.cam.x) * App.cam.zoom, y: (b.y - App.cam.y) * App.cam.zoom };
+    return App.renderer.project(b.x, b.y, 20);
   });
   await page.mouse.click(basePos.x, basePos.y);
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(1500); // software WebGL is slow; give the HUD a few frames
   const buttons = await page.$$eval('#commands .cmd', (els) => els.map((e) => e.textContent.trim()));
   console.log('base buttons:', buttons);
+  if (!buttons.some((b) => b.includes('Lysportal'))) errors.push('clicking the base did not select it');
   await page.evaluate(() => { App.game.teams[0].crystals = 500; });
   await page.waitForTimeout(100);
   await page.click('#commands .cmd >> nth=1'); // first build button (Lysportal)
@@ -152,7 +153,8 @@ try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = requ
     inp.select([base]); hud.update(0);
     hud.cmdList.find((c) => c.text && c.text.startsWith('Samlings')).fn();
     out.rallyMode = inp.mode && inp.mode.type;
-    inp.click((base.x + 150 - App.cam.x) * App.cam.zoom, (base.y - App.cam.y) * App.cam.zoom, false);
+    const rp = App.renderer.project(base.x + 150, base.y, 0);
+    inp.click(rp.x, rp.y, false);
     out.rally = !!base.rally;
     g.cmdTrain(base, 'svevesonde'); g.cmdTrain(base, 'svevesonde');
     const before = g.teams[0].crystals;
@@ -167,7 +169,8 @@ try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = requ
     inp.select([v]); hud.update(0);
     hud.cmdList.find((c) => c.text === 'Løp hit').fn();
     out.moveMode = inp.mode && inp.mode.type;
-    inp.click((v.x + 200 - App.cam.x) * App.cam.zoom, (v.y - App.cam.y) * App.cam.zoom, false);
+    const vp = App.renderer.project(v.x + 200, v.y, 0);
+    inp.click(vp.x, vp.y, false);
     out.moving = v.state === 'move' && !v.attackMove;
     return out;
   });
@@ -207,6 +210,7 @@ try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = requ
   if (shots) await page.screenshot({ path: shots + '/ending.png' });
 
   await browser.close();
+  server.close();
   if (errors.length) { console.error('ERRORS:\n' + errors.join('\n')); process.exit(1); }
   console.log('OK: no errors');
 })().catch((e) => { console.error(e); process.exit(1); });

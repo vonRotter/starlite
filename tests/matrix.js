@@ -1,15 +1,14 @@
 // Faction balance: AI vs AI ("middels" both sides) for every pairing, several seeds.
 // Usage: node tests/matrix.js [games per pairing]
-const path = require('path');
-let chromium;
-try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = require(require('child_process').execSync('npm root -g').toString().trim() + '/playwright')); }
+const { serve, launch } = require('./serve');
 (async () => {
   const n = parseInt(process.argv[2] || '6', 10);
-  const browser = await chromium.launch();
+  const server = await serve();
+  const browser = await launch();
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
+  await page.goto(server.url);
   await page.waitForFunction(() => typeof App !== 'undefined' && App.game, null, { timeout: 60000 });
   const res = await page.evaluate((n) => {
     App.startGame = () => {}; // keep the menu demo from interfering
@@ -36,5 +35,6 @@ try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = requ
   }, n);
   console.table(res);
   await browser.close();
+  server.close();
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
 })();

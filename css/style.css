@@ -26,6 +26,7 @@ html, body {
 
 #app { position: fixed; inset: 0; }
 #world { position: absolute; left: 0; top: 0; display: block; touch-action: none; }
+#overlay { position: absolute; left: 0; top: 0; display: block; pointer-events: none; }
 .hidden { display: none !important; }
 
 #loading {

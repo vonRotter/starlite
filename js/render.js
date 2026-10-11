@@ -17,6 +17,19 @@ class Renderer {
     this.buildStatic();
   }
 
+  // Ground units per screen pixel vertically (1 for this flat top-down view).
+  get K() { return 1; }
+  // World point (x, y on the ground, h = height) to screen pixels.
+  project(x, y, h = 0) {
+    const c = this.cam;
+    return { x: (x - c.x) * c.zoom, y: (y - c.y - h * 0.5) * c.zoom };
+  }
+  // Rough screen-space footprint used for clicking on a building.
+  buildingScreenBox(b) {
+    const S = b.size * TILE, a = this.project(b.x - S / 2, b.y - S / 2 - 14), c = this.project(b.x + S / 2, b.y + S / 2);
+    return { x0: a.x, y0: a.y, x1: c.x, y1: c.y };
+  }
+
   resize(w, h) {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(w * this.dpr);
@@ -163,6 +176,7 @@ class Renderer {
 
   // ---------- world ----------
   draw(cam, st) {
+    this.cam = cam;
     const g = this.game, ctx = this.ctx, dpr = this.dpr, z = cam.zoom;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#2a2440';
@@ -239,9 +253,7 @@ class Renderer {
     // Projectiles
     for (const p of g.projectiles) {
       if (!vis(p.x, p.y, 20)) continue;
-      const total = dist(p.sx, p.sy, p.tx, p.ty) || 1;
-      const k = clamp(1 - dist(p.x, p.y, p.tx, p.ty) / total, 0, 1);
-      const arc = Math.sin(k * Math.PI) * Math.min(40, total * 0.18);
+      const arc = p.z * 0.5;
       Art.ell(ctx, p.x, p.y + 4, p.size * 0.9, p.size * 0.4, 'rgba(30,20,60,0.18)', null);
       Art.circ(ctx, p.x, p.y - arc, p.size, p.color, OUTLINE, 1.6);
       Art.circ(ctx, p.x - p.size * 0.3, p.y - arc - p.size * 0.3, p.size * 0.35, 'rgba(255,255,255,0.7)', null);
@@ -263,22 +275,22 @@ class Renderer {
       if (!vis(e.x, e.y, 200)) continue;
       const k = e.t / e.life;
       if (e.type === 'particle') {
-        Art.circ(ctx, e.x, e.y, e.size * (1 - k * 0.5), e.color, null);
+        Art.circ(ctx, e.x, e.y - e.z * 0.5, e.size * (1 - k * 0.5), e.color, null);
       } else if (e.type === 'text') {
         ctx.globalAlpha = 1 - k * k;
         ctx.font = `700 ${e.big ? 26 : 15}px Fredoka, "Baloo 2", "Comic Sans MS", sans-serif`;
         ctx.textAlign = 'center';
         ctx.lineWidth = e.big ? 5 : 3.5; ctx.strokeStyle = '#ffffff'; ctx.lineJoin = 'round';
-        ctx.strokeText(e.text, e.x, e.y);
-        ctx.fillStyle = e.color; ctx.fillText(e.text, e.x, e.y);
+        ctx.strokeText(e.text, e.x, e.y - e.z * 0.8);
+        ctx.fillStyle = e.color; ctx.fillText(e.text, e.x, e.y - e.z * 0.8);
         ctx.globalAlpha = 1;
       } else if (e.type === 'beam') {
         ctx.globalAlpha = 1 - k;
         ctx.lineCap = 'round';
         ctx.strokeStyle = e.color; ctx.lineWidth = 7;
-        ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x2, e.y2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(e.x, e.y - e.z * 0.5); ctx.lineTo(e.x2, e.y2 - e.z2 * 0.5); ctx.stroke();
         ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x2, e.y2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(e.x, e.y - e.z * 0.5); ctx.lineTo(e.x2, e.y2 - e.z2 * 0.5); ctx.stroke();
         ctx.globalAlpha = 1;
       } else if (e.type === 'ring') {
         ctx.globalAlpha = 1 - k;

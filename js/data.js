@@ -245,6 +245,7 @@ const DIFFICULTIES = {
 };
 
 const UNIT_CAP = 50;
+const AIR_H = 46; // flying height of air units (world units)
 const CARRY = 5;
 const MINE_TIME = 1.4;
 const CRYSTAL_AMOUNT = 1200;

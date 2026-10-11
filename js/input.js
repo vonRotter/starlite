@@ -32,7 +32,10 @@ class Input {
   }
   detach() { this.enabled = false; this.mode = null; this.drag = null; }
 
-  toWorld(sx, sy) { return { x: this.cam.x + sx / this.cam.zoom, y: this.cam.y + sy / this.cam.zoom }; }
+  // The renderer decides the view: K = ground units per screen pixel vertically
+  // (larger than 1 when the camera is tilted).
+  get K() { return this.R ? this.R.K : 1; }
+  toWorld(sx, sy) { return { x: this.cam.x + sx / this.cam.zoom, y: this.cam.y + (sy * this.K) / this.cam.zoom }; }
   local(e, el) { const r = (el || this.canvas).getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 
   bind() {
@@ -74,33 +77,38 @@ class Input {
   centerOn(x, y) {
     const cam = this.cam;
     cam.x = x - cam.w / cam.zoom / 2;
-    cam.y = y - (cam.h - BOTTOM_BAR) / cam.zoom / 2;
+    cam.y = y - ((cam.h - BOTTOM_BAR) * this.K) / cam.zoom / 2;
     this.clampCam();
   }
 
   clampCam() {
     const cam = this.cam, map = this.game.map, m = 60;
-    const vw = cam.w / cam.zoom, vh = (cam.h - BOTTOM_BAR) / cam.zoom;
-    const top = -54 / cam.zoom - m;
+    const vw = cam.w / cam.zoom, vh = ((cam.h - BOTTOM_BAR) * this.K) / cam.zoom;
+    const top = (-54 * this.K) / cam.zoom - m;
     if (vw >= map.pxW + 2 * m) cam.x = (map.pxW - vw) / 2; else cam.x = clamp(cam.x, -m, map.pxW - vw + m);
     if (vh >= map.pxH + 2 * m) cam.y = (map.pxH - vh) / 2; else cam.y = clamp(cam.y, top, map.pxH - vh + m);
   }
 
   // ---------- picking ----------
-  pick(wx, wy) {
-    const g = this.game;
+  // What is under screen point (sx, sy)? Units first, then buildings, then crystals.
+  pick(sx, sy) {
+    const g = this.game, R = this.R, z = this.cam.zoom;
     let best = null, bd = Infinity;
     for (const u of g.units) {
-      const uy = u.air ? u.y - 22 : u.y;
-      const d = dist(wx, wy, u.x, uy);
-      if (d < u.radius + 9 && d < bd) { bd = d; best = u; }
+      const p = R.project(u.x, u.y, u.air ? AIR_H : u.radius * 1.1);
+      const d = dist(sx, sy, p.x, p.y);
+      if (d < (u.radius * 1.3 + 9) * z && d < bd) { bd = d; best = u; }
     }
     if (best) return best;
-    for (const b of g.buildings) {
-      const S = b.size * TILE;
-      if (wx > b.x - S / 2 && wx < b.x + S / 2 && wy > b.y - S / 2 - 14 && wy < b.y + S / 2) return b;
+    const front = g.buildings.slice().sort((a, b) => b.y - a.y);
+    for (const b of front) {
+      const r = R.buildingScreenBox(b);
+      if (sx >= r.x0 && sx <= r.x1 && sy >= r.y0 && sy <= r.y1) return b;
     }
-    for (const r of g.resources) if (dist(wx, wy, r.x, r.y) < 20) return r;
+    for (const r of g.resources) {
+      const p = R.project(r.x, r.y, 10);
+      if (dist(sx, sy, p.x, p.y) < 20 * z) return r;
+    }
     return null;
   }
 
@@ -173,7 +181,7 @@ class Input {
     if (this.pan) {
       const a = this.pointers.size >= 2 ? this.avgPointer() : p;
       this.cam.x = this.pan.cx - (a.x - this.pan.x) / this.cam.zoom;
-      this.cam.y = this.pan.cy - (a.y - this.pan.y) / this.cam.zoom;
+      this.cam.y = this.pan.cy - ((a.y - this.pan.y) * this.K) / this.cam.zoom;
       this.clampCam();
       return;
     }
@@ -182,7 +190,7 @@ class Input {
       if (dist(this.drag.x0, this.drag.y0, p.x, p.y) > (this.drag.touch ? 14 : 8)) this.drag.moved = true;
       if (this.drag.touch && this.drag.moved && !this.mode) {
         this.cam.x = this.drag.cx - (p.x - this.drag.x0) / this.cam.zoom;
-        this.cam.y = this.drag.cy - (p.y - this.drag.y0) / this.cam.zoom;
+        this.cam.y = this.drag.cy - ((p.y - this.drag.y0) * this.K) / this.cam.zoom;
         this.clampCam();
       }
     }
@@ -211,16 +219,18 @@ class Input {
     const z = clamp(this.cam.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), 0.55, 1.6);
     this.cam.zoom = z;
     this.cam.x = before.x - p.x / z;
-    this.cam.y = before.y - p.y / z;
+    this.cam.y = before.y - (p.y * this.K) / z;
     this.clampCam();
   }
 
   boxSelect(d, add) {
-    const a = this.toWorld(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
-    const b = this.toWorld(Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
-    const g = this.game;
-    const list = g.units.filter((u) => u.team === g.player && !u.dead && u.x >= a.x - u.radius && u.x <= b.x + u.radius &&
-      (u.air ? u.y - 22 : u.y) >= a.y - u.radius && (u.air ? u.y - 22 : u.y) <= b.y + u.radius);
+    const x0 = Math.min(d.x0, d.x1), x1 = Math.max(d.x0, d.x1), y0 = Math.min(d.y0, d.y1), y1 = Math.max(d.y0, d.y1);
+    const g = this.game, pad = 8;
+    const list = g.units.filter((u) => {
+      if (u.team !== g.player || u.dead) return false;
+      const p = this.R.project(u.x, u.y, u.air ? AIR_H : u.radius * 0.8);
+      return p.x >= x0 - pad && p.x <= x1 + pad && p.y >= y0 - pad && p.y <= y1 + pad;
+    });
     if (list.length) { this.select(list, add); Sound.play('select'); }
     else if (!add) this.select([]);
   }
@@ -228,7 +238,7 @@ class Input {
   click(sx, sy, shift) {
     const g = this.game, P = g.player;
     const w = this.toWorld(sx, sy);
-    const ent = this.pick(w.x, w.y);
+    const ent = this.pick(sx, sy);
     if (this.mode) {
       const m = this.mode;
       if (m.type === 'build') { this.tryPlace(w.x, w.y, shift); return; }
@@ -253,7 +263,7 @@ class Input {
   rightClick(sx, sy) {
     if (this.mode) { this.mode = null; this.hud.dirty = true; return; }
     const w = this.toWorld(sx, sy);
-    const ent = this.pick(w.x, w.y);
+    const ent = this.pick(sx, sy);
     if (this.ownSelectedUnits().length) this.command(w.x, w.y, ent);
     else this.setRally(w.x, w.y, ent);
   }
@@ -353,7 +363,7 @@ class Input {
     if (this.mouse.in) {
       const w = this.toWorld(this.mouse.x, this.mouse.y);
       this.mouse.wx = w.x; this.mouse.wy = w.y;
-      this.hover = this.pick(w.x, w.y);
+      this.hover = this.pick(this.mouse.x, this.mouse.y);
     } else this.hover = null;
   }
 

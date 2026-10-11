@@ -563,23 +563,22 @@ class Game {
     src.cooldown = d.cd;
     src.attackAnim = 0.25;
     const team = this.teams[src.team];
-    const sx = src.x + (src.kind === 'unit' ? src.facing * src.radius * 0.6 : 0);
-    const sy = src.y - (src.kind === 'building' ? src.size * TILE * 0.35 : src.air ? 20 : 4);
+    const sx = src.x, sy = src.y, sz = this.muzzleH(src), tz = this.hitH(t);
     if (src.kind === 'building') src.aim = Math.atan2(t.y - sy, t.x - sx);
     if (d.attack === 'melee') {
       this.damage(t, d.dmg, src);
       const hx = lerp(src.x, t.x, 0.6), hy = lerp(src.y, t.y, 0.6);
       this.paint.splat(t.x + (Math.random() - 0.5) * 10, t.y + (Math.random() - 0.5) * 10, 7, src.team, team.color.main);
-      this.burst(hx, hy - (t.air ? 20 : 0), team.color.main, 3);
+      this.burst(hx, hy, team.color.main, 3, tz);
       this.sfx('bonk', src.x, src.y);
     } else if (d.attack === 'beam') {
       this.damage(t, d.dmg, src);
-      this.effects.push({ type: 'beam', x: sx, y: sy, x2: t.x, y2: t.y - (t.air ? 20 : 0), color: team.color.main, t: 0, life: 0.18 });
+      this.effects.push({ type: 'beam', x: sx, y: sy, z: sz, x2: t.x, y2: t.y, z2: tz, color: team.color.main, t: 0, life: 0.18 });
       if (Math.random() < 0.35) this.paint.splat(t.x, t.y, 8, src.team, team.color.main);
       this.sfx('beam', src.x, src.y);
     } else {
       this.projectiles.push({
-        x: sx, y: sy, sx, sy, target: t, tx: t.x, ty: t.y, team: src.team, src,
+        x: sx, y: sy, z: sz, sx, sy, sz, target: t, tx: t.x, ty: t.y, tz, total: Math.max(1, dist(sx, sy, t.x, t.y)), team: src.team, src,
         dmg: d.dmg, splash: d.splash || 0, color: team.color.main, speed: d.projSpeed || 340,
         size: d.splash ? 7 : 4.5, hitsAir: d.hitsAir, hitsGround: d.hitsGround !== false, t: 0,
       });
@@ -590,12 +589,15 @@ class Game {
   updateProjectiles(dt) {
     for (const p of this.projectiles) {
       p.t += dt;
-      if (p.target && !p.target.dead) { p.tx = p.target.x; p.ty = p.target.y - (p.target.air ? 20 : 0); }
+      if (p.target && !p.target.dead) { p.tx = p.target.x; p.ty = p.target.y; p.tz = this.hitH(p.target); }
       const dx = p.tx - p.x, dy = p.ty - p.y;
       const d = Math.sqrt(dx * dx + dy * dy);
       const step = p.speed * dt;
       if (d <= step + 4) { p.done = true; this.impact(p); continue; }
       p.x += (dx / d) * step; p.y += (dy / d) * step;
+      // Height: straight line from muzzle to target plus a little lob.
+      const k = clamp(1 - (d - step) / Math.max(p.total, d), 0, 1);
+      p.z = lerp(p.sz, p.tz, k) + Math.sin(k * Math.PI) * Math.min(40, p.total * 0.18);
     }
     this.projectiles = this.projectiles.filter((p) => !p.done);
   }
@@ -615,13 +617,13 @@ class Game {
         if (this.distToRect(gx, gy, b.rect) <= p.splash * 0.5) this.damage(b, b === tgt ? p.dmg : p.dmg * 0.5, p.src, p.team);
       }
       this.paint.splat(gx, gy, p.splash * 0.8, p.team, p.color);
-      this.burst(p.tx, p.ty, p.color, 10);
+      this.burst(p.tx, p.ty, p.color, 10, p.tz);
     } else {
       if (tgt && !tgt.dead) this.damage(tgt, p.dmg, p.src, p.team);
       const ox = tgt && tgt.kind === 'building' ? (Math.random() - 0.5) * tgt.radius : (Math.random() - 0.5) * 12;
       const oy = tgt && tgt.kind === 'building' ? (Math.random() - 0.5) * tgt.radius : (Math.random() - 0.5) * 12;
       this.paint.splat(gx + ox, gy + oy, 10 + Math.random() * 5, p.team, p.color);
-      this.burst(p.tx, p.ty, p.color, 4);
+      this.burst(p.tx, p.ty, p.color, 4, p.tz);
     }
     this.sfx('splat', p.tx, p.ty);
   }
@@ -660,8 +662,8 @@ class Game {
     if (e.kind === 'unit') {
       this.dying.push({ e, t: 0 });
       this.paint.splat(e.x, e.y, 24, killer ? killer.id : e.team, col);
-      this.burst(e.x, e.y - (e.air ? 20 : 0), col, 14);
-      this.effects.push({ type: 'text', text: 'Poff!', x: e.x, y: e.y - 20 - (e.air ? 20 : 0), t: 0, life: 0.9, color: col });
+      this.burst(e.x, e.y, col, 14, this.hitH(e));
+      this.effects.push({ type: 'text', text: 'Poff!', x: e.x, y: e.y, z: this.hitH(e) + 22, t: 0, life: 0.9, color: col });
       this.sfx('poof', e.x, e.y);
     } else if (e.kind === 'building') {
       this.map.occupy(e.tx, e.ty, e.size, e.size, -1);
@@ -670,9 +672,9 @@ class Game {
       for (let i = 0; i < 6; i++) {
         this.paint.splat(e.x + (Math.random() - 0.5) * s, e.y + (Math.random() - 0.5) * s, 14 + e.size * 6, killer ? killer.id : e.team, col);
       }
-      this.burst(e.x, e.y, col, 40);
-      this.burst(e.x, e.y, '#ffffff', 16);
-      this.effects.push({ type: 'text', text: 'SPLASJ!', x: e.x, y: e.y - 30, t: 0, life: 1.4, color: col, big: true });
+      this.burst(e.x, e.y, col, 40, s * 0.3);
+      this.burst(e.x, e.y, '#ffffff', 16, s * 0.3);
+      this.effects.push({ type: 'text', text: 'SPLASJ!', x: e.x, y: e.y, z: s * 0.7, t: 0, life: 1.4, color: col, big: true });
       this.sfx('crash', e.x, e.y);
       if (e.team === this.player) this.msg(`${e.def.name} ble malt over!`, 'alert');
       else if (killer && killer.id === this.player) this.msg(`Du malte over ${e.def.name}!`, 'good');
@@ -722,7 +724,7 @@ class Game {
       const amt = u.carry * t.incomeMult;
       t.crystals += amt;
       t.gathered += u.carry;
-      if (u.team === this.player) this.effects.push({ type: 'text', text: '+' + u.carry, x: u.x, y: u.y - 16, t: 0, life: 0.8, color: '#1aa7c9' });
+      if (u.team === this.player) this.effects.push({ type: 'text', text: '+' + u.carry, x: u.x, y: u.y, z: 28, t: 0, life: 0.8, color: '#1aa7c9' });
       u.carry = 0;
       u.path = null;
       u.state = 'gather';
@@ -844,22 +846,35 @@ class Game {
   }
 
   // ---------- effects ----------
-  burst(x, y, color, n) {
+  // Paint droplets flying out in 3D (x, y on the ground, z = height).
+  burst(x, y, color, n, z = 6) {
     if (this.effects.length > 700) return;
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * TAU, s = 40 + Math.random() * 120;
+      const a = Math.random() * TAU, s = 30 + Math.random() * 100;
       this.effects.push({
-        type: 'particle', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, color,
-        size: 2 + Math.random() * 3.5, t: 0, life: 0.4 + Math.random() * 0.4,
+        type: 'particle', x, y, z, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 80 + Math.random() * 170, color,
+        size: 2 + Math.random() * 3.5, t: 0, life: 0.45 + Math.random() * 0.4,
       });
     }
+  }
+
+  // Heights used for projectiles and effects.
+  hitH(e) {
+    if (e.kind === 'building') return e.size * TILE * 0.35;
+    return e.air ? AIR_H : e.radius * 0.9;
+  }
+  muzzleH(e) {
+    if (e.kind === 'building') return e.size * TILE * 0.9;
+    return e.air ? AIR_H : e.radius * 1.1;
   }
 
   updateEffects(dt) {
     for (const e of this.effects) {
       e.t += dt;
-      if (e.type === 'particle') { e.x += e.vx * dt; e.y += e.vy * dt; e.vy += 300 * dt; e.vx *= 0.97; }
-      else if (e.type === 'text') e.y -= 28 * dt;
+      if (e.type === 'particle') {
+        e.x += e.vx * dt; e.y += e.vy * dt; e.z += e.vz * dt; e.vz -= 520 * dt;
+        if (e.z < 0) { e.z = 0; e.vz = 0; e.vx *= 0.4; e.vy *= 0.4; }
+      } else if (e.type === 'text') e.z += 30 * dt;
     }
     this.effects = this.effects.filter((e) => e.t < e.life);
     for (const d of this.dying) d.t += dt;

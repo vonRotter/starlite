@@ -7,10 +7,16 @@ const SPEEDS = [{ name: 'Rolig', v: 0.75 }, { name: 'Normal', v: 1 }, { name: 'R
 const App = {
   init() {
     this.canvas = document.getElementById('world');
-    this.renderer = new Renderer(this.canvas, document.getElementById('minimap'));
-    this.input = new Input(this.canvas, document.getElementById('minimap'));
+    const mm = document.getElementById('minimap');
+    // The 3D renderer needs WebGL and a served page (ES modules); ?2d forces the flat renderer.
+    const want3D = typeof window.Renderer3D === 'function' && !/[?&]2d\b/.test(location.search);
+    this.renderer = want3D ? new window.Renderer3D(this.canvas, mm, document.getElementById('overlay')) : new Renderer(this.canvas, mm);
+    this.is3D = want3D;
+    this.input = new Input(this.canvas, mm);
+    this.input.R = this.renderer;
     this.hud = new HUD();
     this.cam = { x: 0, y: 0, zoom: 1, w: window.innerWidth, h: window.innerHeight };
+    this.renderer.cam = this.cam;
     this.game = null;
     this.mode = 'menu';
     this.paused = false;
@@ -489,7 +495,7 @@ const App = {
     this.renderer.setGame(g);
     this.cam.zoom = 1;
     this.cam.x = g.map.pxW / 2 - this.cam.w / 2;
-    this.cam.y = g.map.pxH / 2 - this.cam.h / 2;
+    this.cam.y = g.map.pxH / 2 - (this.cam.h * this.renderer.K) / 2;
   },
 
   demoCamera(dt) {
@@ -497,11 +503,11 @@ const App = {
     let x = 0, y = 0, n = 0;
     for (const u of g.units) if (u.def.dmg) { x += u.x; y += u.y; n++; }
     const tx = n ? x / n : g.map.pxW / 2, ty = n ? y / n : g.map.pxH / 2;
-    const cx = tx - this.cam.w / 2, cy = ty - this.cam.h / 2;
+    const vw = this.cam.w, vh = this.cam.h * this.renderer.K;
+    const cx = tx - vw / 2, cy = ty - vh / 2;
     const k = Math.min(1, dt * 0.4);
     this.cam.x += (cx - this.cam.x) * k;
     this.cam.y += (cy - this.cam.y) * k;
-    const vw = this.cam.w, vh = this.cam.h;
     this.cam.x = vw >= g.map.pxW ? (g.map.pxW - vw) / 2 : clamp(this.cam.x, 0, g.map.pxW - vw);
     this.cam.y = vh >= g.map.pxH ? (g.map.pxH - vh) / 2 : clamp(this.cam.y, 0, g.map.pxH - vh);
   },
