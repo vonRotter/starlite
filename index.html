@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Starlite</title>
+  <meta name="description" content="Starlite – et fargerikt strategispill for barn. Mal verden fargerik igjen!">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="world"></canvas>
+
+    <!-- In-game HUD -->
+    <div id="hud" class="hidden">
+      <div id="topbar">
+        <div class="pill" title="Krystaller"><span class="ico ico-crystal"></span><b id="crystals">0</b></div>
+        <div class="pill" title="Enheter"><span class="ico ico-unit"></span><b id="unitcount">0</b></div>
+        <div class="pill paint" title="Hvor mye av kartet som er malt">
+          <span class="label">Maling</span>
+          <div class="paintbar" id="paintbar"></div>
+        </div>
+        <div class="spacer"></div>
+        <button class="tbtn" id="btn-sound" title="Lyd av/på">Lyd</button>
+        <button class="tbtn" id="btn-pause" title="Pause (P)">Pause</button>
+      </div>
+      <div id="objectives"></div>
+      <div id="toasts"></div>
+      <div id="bottombar">
+        <div id="mmwrap"><canvas id="minimap"></canvas></div>
+        <div id="selinfo"></div>
+        <div id="commands"></div>
+      </div>
+    </div>
+
+    <!-- Menu screens (filled in by main.js) -->
+    <div id="screen-menu" class="screen hidden"></div>
+    <div id="screen-campaign" class="screen hidden"></div>
+    <div id="screen-skirmish" class="screen hidden"></div>
+    <div id="screen-howto" class="screen hidden"></div>
+    <div id="screen-pause" class="screen hidden"></div>
+    <div id="screen-result" class="screen hidden"></div>
+    <div id="screen-end" class="screen hidden"></div>
+
+    <div id="screen-dialog" class="hidden">
+      <div class="dialog-box">
+        <div class="portrait"><canvas id="portrait" width="360" height="360"></canvas></div>
+        <div class="dialog-body">
+          <div class="dialog-name" id="dialog-name"></div>
+          <div class="dialog-text" id="dialog-text"></div>
+          <div class="dialog-buttons">
+            <button class="btn small ghost" id="dialog-speak">Les høyt: av</button>
+            <button class="btn small ghost" id="dialog-skip">Hopp over</button>
+            <button class="btn" id="dialog-next">Neste</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="loading">Laster Starlite …</div>
+  </div>
+
+  <script src="js/util.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/paint.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/art.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/story.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/hud.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

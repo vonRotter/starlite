@@ -1,0 +1,13 @@
+{
+  "name": "starlite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A colourful, child-friendly real-time strategy game inspired by StarCraft. Norwegian text.",
+  "scripts": {
+    "start": "npx http-server -c-1 .",
+    "test": "node tests/smoke.js && node tests/campaign.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
