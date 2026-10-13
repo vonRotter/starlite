@@ -1,11 +1,25 @@
 'use strict';
-// Mouse, touch and keyboard input. Designed for children:
-//  - left click on a unit selects it; left click on the ground/enemy commands
-//    the selected units (right click works too, like classic RTS games)
-//  - fighters walk in "attack-move" by default, so they fight what they meet
-//  - one-finger touch drag pans the map; drag with the mouse draws a selection box
+// Mouse, touch and keyboard input, with two control styles:
+//
+// StarCraft mode (this.sc = true)
+//  - left click selects, drag selects many, double click / Ctrl+click selects all of a type
+//  - right click: move (plain), attack an enemy, gather crystals, return cargo, set rally point
+//  - Q attack-move (then left click), X stop, H hold position, Shift queues orders
+//  - Ctrl+1-9 make a control group, 1-9 select it (press twice to jump to it)
+//  - every command button has a letter hotkey shown on it
+//
+// Simple mode (this.sc = false), for young children
+//  - left click on the ground commands the selected units (fighters attack-move)
+//  - right click is a plain move, number keys press the command buttons
+//
+// Both: WASD / arrow keys / screen edges move the camera, mouse wheel zooms,
+// Space jumps home, F1 selects an idle worker, F2 selects the whole army,
+// one-finger touch drag pans.
 
 const BOTTOM_BAR = 172;
+const CAMERA_KEYS = { KeyW: [0, -1], KeyA: [-1, 0], KeyS: [0, 1], KeyD: [1, 0], ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowRight: [1, 0] };
+// Letters with a fixed meaning in StarCraft mode (never used for button hotkeys).
+const RESERVED_KEYS = ['W', 'A', 'S', 'D', 'Q', 'X', 'H', 'P'];
 
 class Input {
   constructor(canvas, minimap) {
@@ -13,7 +27,8 @@ class Input {
     this.mm = minimap;
     this.game = null; this.cam = null; this.hud = null;
     this.enabled = false;
-    this.mode = null; // {type:'build', what} | {type:'move'} | {type:'rally'}
+    this.sc = true;
+    this.mode = null; // {type:'build', what} | {type:'move'} | {type:'attack'} | {type:'rally'}
     this.pointers = new Map();
     this.drag = null;
     this.pan = null;
@@ -21,16 +36,25 @@ class Input {
     this.win = { x: -1, y: -1, active: false };
     this.keys = new Set();
     this.lastClick = { t: 0, id: -1 };
+    this.lastGroup = { n: -1, t: 0 };
+    this.groups = {};
     this.hover = null;
     this.onPause = null;
     this.bind();
   }
 
   attach(game, cam, hud) {
+    if (this.game !== game) { this.groups = {}; this.idleIdx = 0; }
     this.game = game; this.cam = cam; this.hud = hud;
-    this.mode = null; this.drag = null; this.enabled = true;
+    this.setMode(null); this.drag = null; this.enabled = true;
   }
-  detach() { this.enabled = false; this.mode = null; this.drag = null; }
+  detach() { this.enabled = false; this.setMode(null); this.drag = null; this.keys.clear(); }
+
+  setMode(m) {
+    this.mode = m;
+    this.canvas.style.cursor = !m ? '' : m.type === 'attack' ? 'crosshair' : m.type === 'build' ? 'cell' : 'pointer';
+    if (this.hud) this.hud.dirty = true;
+  }
 
   // The renderer decides the view: K = ground units per screen pixel vertically
   // (larger than 1 when the camera is tilted).
@@ -53,14 +77,15 @@ class Input {
     window.addEventListener('blur', () => { this.win.active = false; this.keys.clear(); });
     window.addEventListener('keydown', (e) => this.onKey(e, true));
     window.addEventListener('keyup', (e) => this.onKey(e, false));
-    // minimap
+    // minimap: left = look there, right = command there
     const mmDown = (e) => {
       if (!this.enabled) return;
       e.preventDefault();
       const p = this.local(e, this.mm);
       const r = this.mm.getBoundingClientRect();
       const wx = (p.x / r.width) * this.game.map.pxW, wy = (p.y / r.height) * this.game.map.pxH;
-      if (e.button === 2) { this.command(wx, wy, null); return; }
+      if (e.button === 2) { this.command(wx, wy, null, { queue: e.shiftKey }); return; }
+      if (this.mode && this.mode.type === 'attack') { this.attackClick(wx, wy, null, e.shiftKey); return; }
       this.mm.setPointerCapture(e.pointerId);
       this.mmDrag = true;
       this.centerOn(wx, wy);
@@ -133,6 +158,7 @@ class Input {
     if (g.selection.some((e) => e.kind === 'unit') && g.selection.some((e) => e.kind !== 'unit')) {
       g.selection = g.selection.filter((e) => e.kind === 'unit');
     }
+    if (this.mode && this.mode.type !== 'build') this.setMode(null);
     if (this.hud) this.hud.dirty = true;
   }
 
@@ -149,6 +175,53 @@ class Input {
     this.select(g.units.filter((u) => u.team === g.player && u.def.worker && !u.dead));
   }
 
+  // Select the next worker that has nothing to do and look at it.
+  selectIdleWorker() {
+    const g = this.game;
+    const idle = g.units.filter((u) => u.team === g.player && u.def.worker && !u.dead && u.state === 'idle');
+    if (!idle.length) { g.msg('Ingen byggere står og venter.'); return; }
+    this.idleIdx = ((this.idleIdx || 0) + 1) % idle.length;
+    const u = idle[this.idleIdx];
+    this.select([u]);
+    this.centerOn(u.x, u.y);
+    Sound.play('select');
+  }
+
+  selectSameOnScreen(ent) {
+    const g = this.game, v = g.view, P = g.player;
+    const list = ent.kind === 'unit'
+      ? g.units.filter((u) => u.team === P && u.type === ent.type && u.x > v.x && u.x < v.x + v.w && u.y > v.y && u.y < v.y + v.h)
+      : g.buildings.filter((b) => b.team === P && b.type === ent.type && b.x > v.x && b.x < v.x + v.w && b.y > v.y && b.y < v.y + v.h);
+    this.select(list.length ? list : [ent]);
+  }
+
+  // ---------- control groups (StarCraft mode) ----------
+  groupKey(n, ctrl, shift) {
+    const g = this.game, P = g.player;
+    const own = g.selection.filter((e) => e.team === P && !e.dead);
+    if (ctrl || shift) {
+      if (!own.length) return;
+      const set = shift ? (this.groups[n] || []).filter((e) => !e.dead) : [];
+      for (const e of own) if (!set.includes(e)) set.push(e);
+      this.groups[n] = set;
+      g.msg(`Gruppe ${n} lagret (${set.length}).`);
+      this.hud.dirty = true;
+      return;
+    }
+    const list = (this.groups[n] || []).filter((e) => !e.dead);
+    this.groups[n] = list;
+    if (!list.length) return;
+    const now = performance.now();
+    if (this.lastGroup.n === n && now - this.lastGroup.t < 400) {
+      let x = 0, y = 0;
+      for (const e of list) { x += e.x; y += e.y; }
+      this.centerOn(x / list.length, y / list.length);
+    }
+    this.lastGroup = { n, t: now };
+    this.select(list);
+    Sound.play('select');
+  }
+
   // ---------- pointer ----------
   onDown(e) {
     if (!this.enabled) return;
@@ -162,7 +235,7 @@ class Input {
       this.pan = { ...this.avgPointer(), cx: this.cam.x, cy: this.cam.y };
       return;
     }
-    if (e.button === 2) { this.rightClick(p.x, p.y); return; }
+    if (e.button === 2) { this.rightClick(p.x, p.y, e.shiftKey); return; }
     if (e.button === 1) { this.pan = { x: p.x, y: p.y, cx: this.cam.x, cy: this.cam.y }; return; }
     this.drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false, touch: e.pointerType === 'touch', shift: e.shiftKey, cx: this.cam.x, cy: this.cam.y };
   }
@@ -208,7 +281,7 @@ class Input {
       if (!d.touch && !this.mode) this.boxSelect(d, e.shiftKey);
       return;
     }
-    this.click(p.x, p.y, e.shiftKey);
+    this.click(p.x, p.y, e.shiftKey, e.ctrlKey || e.metaKey);
   }
 
   onWheel(e) {
@@ -226,138 +299,182 @@ class Input {
   boxSelect(d, add) {
     const x0 = Math.min(d.x0, d.x1), x1 = Math.max(d.x0, d.x1), y0 = Math.min(d.y0, d.y1), y1 = Math.max(d.y0, d.y1);
     const g = this.game, pad = 8;
-    const list = g.units.filter((u) => {
+    let list = g.units.filter((u) => {
       if (u.team !== g.player || u.dead) return false;
       const p = this.R.project(u.x, u.y, u.air ? AIR_H : u.radius * 0.8);
       return p.x >= x0 - pad && p.x <= x1 + pad && p.y >= y0 - pad && p.y <= y1 + pad;
     });
-    if (list.length) { this.select(list, add); Sound.play('select'); }
-    else if (!add) this.select([]);
+    // Like StarCraft: a box with soldiers in it ignores the workers.
+    if (this.sc && list.some((u) => u.def.dmg)) list = list.filter((u) => u.def.dmg);
+    if (list.length) {
+      if (add) this.select(g.selection.concat(list.filter((u) => !g.selection.includes(u))));
+      else this.select(list);
+      Sound.play('select');
+    } else if (!add) this.select([]);
   }
 
-  click(sx, sy, shift) {
+  click(sx, sy, shift, ctrl) {
     const g = this.game, P = g.player;
     const w = this.toWorld(sx, sy);
     const ent = this.pick(sx, sy);
     if (this.mode) {
       const m = this.mode;
       if (m.type === 'build') { this.tryPlace(w.x, w.y, shift); return; }
-      if (m.type === 'move') { this.mode = null; this.command(w.x, w.y, ent, true); this.hud.dirty = true; return; }
-      if (m.type === 'rally') { this.mode = null; this.setRally(w.x, w.y, ent); this.hud.dirty = true; return; }
+      if (m.type === 'attack') { this.attackClick(w.x, w.y, ent, shift); return; }
+      if (m.type === 'move') { if (!shift) this.setMode(null); this.command(w.x, w.y, ent, { moveOnly: true, queue: shift }); return; }
+      if (m.type === 'rally') { this.setMode(null); this.setRally(w.x, w.y, ent); return; }
     }
     if (ent && ent.kind !== 'resource' && ent.team === P) {
       const now = performance.now();
-      if (ent.kind === 'unit' && now - this.lastClick.t < 380 && this.lastClick.id === ent.id) {
-        // Double click: everything of that type on screen.
-        const v = g.view;
-        this.select(g.units.filter((u) => u.team === P && u.type === ent.type && u.x > v.x && u.x < v.x + v.w && u.y > v.y && u.y < v.y + v.h));
-      } else this.select([ent], shift);
+      const dbl = now - this.lastClick.t < 380 && this.lastClick.id === ent.id;
+      if (ctrl || (dbl && ent.kind === 'unit')) this.selectSameOnScreen(ent);
+      else this.select([ent], shift);
       this.lastClick = { t: now, id: ent.id };
       Sound.play('select');
       return;
     }
-    if (this.ownSelectedUnits().length) { this.command(w.x, w.y, ent); return; }
+    if (this.sc) {
+      // StarCraft mode: left click only selects.
+      if (ent) this.select([ent]); else if (!shift) this.select([]);
+      return;
+    }
+    if (this.ownSelectedUnits().length) { this.command(w.x, w.y, ent, { attackMove: true }); return; }
     this.select(ent ? [ent] : []);
   }
 
-  rightClick(sx, sy) {
-    if (this.mode) { this.mode = null; this.hud.dirty = true; return; }
+  rightClick(sx, sy, shift) {
+    if (this.mode) { this.setMode(null); return; }
     const w = this.toWorld(sx, sy);
     const ent = this.pick(sx, sy);
-    if (this.ownSelectedUnits().length) this.command(w.x, w.y, ent);
+    if (this.ownSelectedUnits().length) this.command(w.x, w.y, ent, { queue: shift });
     else this.setRally(w.x, w.y, ent);
   }
 
   setRally(x, y, ent) {
     const g = this.game;
-    const b = g.selection.find((e) => e.kind === 'building' && e.team === g.player && e.def.trains);
-    if (!b) return;
-    g.setRally(b, x, y, ent && ent.kind === 'resource' ? ent : null);
+    const bs = g.selection.filter((e) => e.kind === 'building' && e.team === g.player && e.def.trains);
+    if (!bs.length) return;
+    for (const b of bs) g.setRally(b, x, y, ent && ent.kind === 'resource' ? ent : null);
     g.effects.push({ type: 'ring', x, y, t: 0, life: 0.5, color: '#ffe14d' });
     Sound.play('order');
   }
 
-  // Order the selected units. moveOnly = walk without stopping to fight.
-  command(x, y, ent, moveOnly) {
+  // Attack-move click (Q in StarCraft mode): fight everything on the way.
+  attackClick(x, y, ent, queue) {
+    const g = this.game;
+    const fighters = this.ownSelectedUnits().filter((u) => u.def.dmg);
+    if (!queue) this.setMode(null);
+    if (!fighters.length) return;
+    if (ent && ent.team != null && ent.team >= 0 && g.isEnemy(g.player, ent.team)) g.cmdAttack(fighters, ent, queue);
+    else g.cmdMove(fighters, x, y, true, queue);
+    g.effects.push({ type: 'ring', x, y, t: 0, life: 0.5, color: '#ff4d4d' });
+    Sound.play('order');
+  }
+
+  // Order the selected units. opts: moveOnly (never fight), attackMove (fight on the way), queue (Shift).
+  command(x, y, ent, opts = {}) {
     const g = this.game, P = g.player;
     const sel = this.ownSelectedUnits();
     if (!sel.length) { this.setRally(x, y, ent); return; }
+    const q = !!opts.queue;
     const workers = sel.filter((u) => u.def.worker), fighters = sel.filter((u) => !u.def.worker);
     let color = '#3dff8a';
     if (ent && ent.kind === 'resource') {
       g.cmdGather(workers, ent);
-      if (fighters.length) g.cmdMove(fighters, x, y, !moveOnly);
+      if (fighters.length) g.cmdMove(fighters, x, y, !!opts.attackMove, q);
       color = '#5ee6ff';
-    } else if (ent && ent.team != null && ent.team >= 0 && g.isEnemy(P, ent.team) && !moveOnly) {
-      g.cmdAttack(fighters, ent);
-      if (workers.length) g.cmdMove(workers, x, y, false);
+    } else if (ent && ent.team != null && ent.team >= 0 && g.isEnemy(P, ent.team) && !opts.moveOnly) {
+      g.cmdAttack(fighters, ent, q);
+      if (workers.length) g.cmdMove(workers, x, y, false, q);
       color = '#ff4d4d';
+    } else if (ent && ent.kind === 'building' && ent.team === P && !ent.started && workers.length) {
+      g.sendBuilder(workers[0], ent);
+      if (fighters.length) g.cmdMove(fighters, x, y, false, q);
     } else if (ent && ent.kind === 'building' && ent.team === P && ent.def.isBase && workers.some((u) => u.carry > 0)) {
       g.cmdReturn(workers);
-      if (fighters.length) g.cmdMove(fighters, x, y, !moveOnly);
+      if (fighters.length) g.cmdMove(fighters, x, y, false, q);
     } else {
-      if (fighters.length) g.cmdMove(fighters, x, y, !moveOnly);
-      if (workers.length) g.cmdMove(workers, x, y, false);
+      if (fighters.length) g.cmdMove(fighters, x, y, !!opts.attackMove && !opts.moveOnly, q);
+      if (workers.length) g.cmdMove(workers, x, y, false, q);
+      if (opts.attackMove && fighters.length) color = '#ff9a3d';
     }
     g.effects.push({ type: 'ring', x, y, t: 0, life: 0.5, color });
     Sound.play('order');
   }
 
-  startBuild(type) {
-    this.mode = { type: 'build', what: type };
-    this.hud.dirty = true;
-  }
+  startBuild(type) { this.setMode({ type: 'build', what: type }); }
 
   tryPlace(wx, wy, keep) {
     const g = this.game, type = this.mode.what, s = BUILDINGS[type].size;
     const tx = Math.round(wx / TILE - s / 2), ty = Math.round(wy / TILE - s / 2);
-    const err = g.cmdBuild(g.player, type, tx, ty);
+    // Send the selected worker closest to the spot, if any.
+    const cx = (tx + s / 2) * TILE, cy = (ty + s / 2) * TILE;
+    const ws = this.ownSelectedUnits().filter((u) => u.def.worker).sort((a, b) => dist2(a.x, a.y, cx, cy) - dist2(b.x, b.y, cx, cy));
+    const err = g.cmdBuild(g.player, type, tx, ty, ws[0]);
     if (err) { g.msg(err, 'alert'); Sound.play('error'); return; }
-    if (!keep) this.mode = null;
+    if (!keep) this.setMode(null);
     this.hud.dirty = true;
   }
 
   // ---------- keyboard ----------
   onKey(e, down) {
+    const code = e.code || '';
+    if (!down) { this.keys.delete(code); return; }
     if (!this.enabled) return;
-    const k = e.key;
-    if (down) this.keys.add(k); else this.keys.delete(k);
-    if (!down) return;
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-    if (k === 'Escape') {
-      if (this.mode) this.mode = null; else this.select([]);
-      this.hud.dirty = true;
-    } else if (k === 'a' || k === 'A') this.selectArmy();
-    else if (k === 'b' || k === 'B') this.selectWorkers();
-    else if (k === ' ') { e.preventDefault(); this.jumpHome(); }
-    else if (k === 'p' || k === 'P') { if (this.onPause) this.onPause(); }
-    else if (k === 's' || k === 'S') { this.game.cmdStop(this.ownSelectedUnits()); }
-    else if (/^[1-9]$/.test(k)) this.hud.hotkey(parseInt(k, 10) - 1);
-    if (k.startsWith('Arrow')) e.preventDefault();
+    if (e.ctrlKey && (code === 'KeyW' || code === 'KeyR')) return; // leave browser shortcuts alone
+    this.keys.add(code);
+    if (CAMERA_KEYS[code] || code === 'Space' || code === 'F1' || code === 'F2' || code === 'Tab') e.preventDefault();
+    if (e.repeat && !CAMERA_KEYS[code]) return;
+    const g = this.game;
+    if (code === 'Escape') { if (this.mode) this.setMode(null); else this.select([]); return; }
+    if (code === 'Space') { this.jumpHome(); return; }
+    if (code === 'F1') { this.selectIdleWorker(); return; }
+    if (code === 'F2') { this.selectArmy(); return; }
+    if (code === 'KeyP') { if (this.onPause) this.onPause(); return; }
+    if (CAMERA_KEYS[code]) return;
+    const digit = /^Digit([1-9])$/.exec(code);
+    if (this.sc) {
+      if (digit) { e.preventDefault(); this.groupKey(parseInt(digit[1], 10), e.ctrlKey || e.metaKey, e.shiftKey); return; }
+      if (code === 'KeyQ') {
+        if (this.ownSelectedUnits().some((u) => u.def.dmg)) this.setMode({ type: 'attack' });
+        return;
+      }
+      if (code === 'KeyX') { g.cmdStop(this.ownSelectedUnits()); this.hud.dirty = true; return; }
+      if (code === 'KeyH') { g.cmdHold(this.ownSelectedUnits()); this.hud.dirty = true; return; }
+      const letter = /^Key([A-Z])$/.exec(code);
+      if (letter) this.hud.hotkeyLetter(letter[1]);
+    } else if (digit) {
+      this.hud.hotkey(parseInt(digit[1], 10) - 1);
+    }
   }
 
   jumpHome() {
     const g = this.game;
-    const b = g.buildings.find((x) => x.team === g.player && x.def.isBase) || g.buildings.find((x) => x.team === g.player);
-    if (b) this.centerOn(b.x, b.y);
+    const bases = g.buildings.filter((x) => x.team === g.player && x.def.isBase);
+    const list = bases.length ? bases : g.buildings.filter((x) => x.team === g.player);
+    if (!list.length) return;
+    // Pressing again cycles through your bases.
+    this.homeIdx = ((this.homeIdx == null ? -1 : this.homeIdx) + 1) % list.length;
+    this.centerOn(list[this.homeIdx].x, list[this.homeIdx].y);
   }
 
   // Called every frame: keyboard and edge scrolling.
   update(dt) {
     if (!this.enabled) return;
     const cam = this.cam;
-    const sp = (700 * dt) / cam.zoom;
+    const sp = (750 * dt) / cam.zoom;
     let dx = 0, dy = 0;
-    if (this.keys.has('ArrowLeft')) dx -= sp;
-    if (this.keys.has('ArrowRight')) dx += sp;
-    if (this.keys.has('ArrowUp')) dy -= sp;
-    if (this.keys.has('ArrowDown')) dy += sp;
+    for (const code of this.keys) {
+      const v = CAMERA_KEYS[code];
+      if (v) { dx += v[0] * sp; dy += v[1] * sp * this.K; }
+    }
     if (this.win.active && this.mouse.type === 'mouse' && !this.drag && !this.mmDrag) {
       const e = 6;
       if (this.win.x <= e) dx -= sp;
       if (this.win.x >= window.innerWidth - e) dx += sp;
-      if (this.win.y <= e) dy -= sp;
-      if (this.win.y >= window.innerHeight - e) dy += sp;
+      if (this.win.y <= e) dy -= sp * this.K;
+      if (this.win.y >= window.innerHeight - e) dy += sp * this.K;
     }
     if (dx || dy) { cam.x += dx; cam.y += dy; this.clampCam(); }
     if (this.mouse.in) {

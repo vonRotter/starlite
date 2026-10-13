@@ -66,9 +66,9 @@ const MISSIONS = [
           { faction: 'graa', color: 'grey', name: 'Støvdott-leiren' },
         ],
         objectives: [
-          { type: 'build', what: 'kaserne', text: 'Bygg en Kaserne', hint: 'Klikk på Stjernestasjonen eller en byggebot. Trykk på Kaserne-knappen nede til høyre. Klikk så på bakken der den skal stå.' },
+          { type: 'build', what: 'kaserne', text: 'Bygg en Kaserne', hint: 'Klikk på en byggebot. Trykk på Kaserne-knappen nede til høyre. Klikk så på bakken der den skal stå, så går byggeboten dit.' },
           { type: 'train', what: 'malersoldat', count: 4, text: 'Lag 4 malersoldater', hint: 'Klikk på Kasernen og trykk på Malersoldat-knappen fire ganger.' },
-          { type: 'destroyAll', text: 'Mal over Støvdott-leiren', hint: 'Trykk på «Alle soldater». Klikk så på den grå fabrikken langt til høyre.' },
+          { type: 'destroyAll', text: 'Mal over Støvdott-leiren', hint: 'Trykk på «Alle soldater» (F2). Høyreklikk så på den grå fabrikken langt til høyre.' },
         ],
         onStart(g) {
           const camp = g.spawnBuildingNear(1, 'taakefabrikk', 36, 14);
@@ -97,12 +97,12 @@ const MISSIONS = [
     setup() {
       const w = 54, h = 40;
       return {
-        map: { w, h, seed: 202, theme: 'skog', bases: [{ tx: 4, ty: 4 }, { tx: w - 8, ty: h - 8 }] },
+        map: { w, h, seed: 202, theme: 'skog', bases: [{ tx: 4, ty: 4 }, { tx: w - 8, ty: h - 8 }], expansions: expansionSpots(w, h, [{ tx: 4, ty: 4 }, { tx: w - 8, ty: h - 8 }]) },
         teams: [
           { faction: 'stjerne', color: 'orange', isPlayer: true, start: { tx: 4, ty: 4 }, crystals: 150 },
           { faction: 'summ', color: 'grey', gloom: true, name: 'Grå Summere', start: { tx: w - 8, ty: h - 8 }, ai: 'lett' },
         ],
-        aiOpts: { 1: { firstAttack: 210, wave: 4 } },
+        aiOpts: { 1: { firstAttack: 210, wave: 4, maxBases: 1, research: false } },
         objectives: [{ type: 'destroyAll', text: 'Mal over hele Summ-basen', hint: 'Bygg et Verksted for å lage rullebiler og ballongflyere.' }],
       };
     },
@@ -126,7 +126,7 @@ const MISSIONS = [
     setup() {
       const w = 54, h = 40;
       return {
-        map: { w, h, seed: 303, theme: 'grotte', bases: [{ tx: 4, ty: h - 8 }, { tx: w - 8, ty: 4 }] },
+        map: { w, h, seed: 303, theme: 'grotte', bases: [{ tx: 4, ty: h - 8 }, { tx: w - 8, ty: 4 }], expansions: expansionSpots(w, h, [{ tx: 4, ty: h - 8 }, { tx: w - 8, ty: 4 }]) },
         teams: [
           { faction: 'summ', color: 'pink', isPlayer: true, start: { tx: 4, ty: h - 8 }, crystals: 200 },
           { faction: 'krystall', color: 'grey', gloom: true, name: 'Grå Krystallvoktere', start: { tx: w - 8, ty: 4 }, ai: 'supersnill' },
@@ -217,13 +217,16 @@ const MISSIONS = [
     setup() {
       const w = 62, h = 46;
       return {
-        map: { w, h, seed: 505, theme: 'sky', bases: [{ tx: 4, ty: h - 8 }, { tx: 4, ty: 4 }, { tx: w - 9, ty: Math.floor(h / 2) - 2 }] },
+        map: {
+          w, h, seed: 505, theme: 'sky', bases: [{ tx: 4, ty: h - 8 }, { tx: 4, ty: 4 }, { tx: w - 9, ty: Math.floor(h / 2) - 2 }],
+          expansions: expansionSpots(w, h, [{ tx: 4, ty: h - 8 }, { tx: 4, ty: 4 }, { tx: w - 9, ty: Math.floor(h / 2) - 2 }]),
+        },
         teams: [
           { faction: 'stjerne', color: 'orange', isPlayer: true, start: { tx: 4, ty: h - 8 }, crystals: 200, allies: [1] },
           { faction: 'summ', color: 'pink', name: 'Summerne', start: { tx: 4, ty: 4 }, ai: 'lett', allies: [0] },
           { faction: 'graa', color: 'grey', name: 'Gråskodda', start: { tx: w - 9, ty: Math.floor(h / 2) - 2 }, ai: 'middels' },
         ],
-        aiOpts: { 1: { targetTeam: 2, firstAttack: 200, wave: 6 }, 2: { firstAttack: 200, wave: 5 } },
+        aiOpts: { 1: { targetTeam: 2, firstAttack: 200, wave: 6 }, 2: { firstAttack: 200, wave: 5, maxBases: 1, research: false } },
         objectives: [{ type: 'destroyAll', text: 'Mal Skyslottet fargerikt', hint: 'Lag mange soldater, og angrip sammen med Summerne.' }],
         onStart(g) {
           const cx = w - 9, cy = Math.floor(h / 2) - 2;
@@ -243,7 +246,7 @@ const MAP_CHOICES = ['eng', 'skog', 'grotte', 'sky', 'strand'];
 // o = { faction, color, enemy, enemyColor, helper (faction|null), helperColor, difficulty, theme, seed, speed }
 function skirmishConfig(o) {
   const three = !!o.helper;
-  const w = three ? 62 : 56, h = three ? 46 : 42;
+  const w = three ? 68 : 64, h = three ? 50 : 48;
   const starts = skirmishStarts(w, h, three ? 3 : 2);
   const teams = [
     { faction: o.faction, color: o.color, isPlayer: true, start: starts[0], crystals: 100, allies: three ? [2] : [] },
@@ -253,7 +256,7 @@ function skirmishConfig(o) {
   return {
     map: {
       w, h, seed: o.seed, theme: o.theme, bases: starts,
-      fields: [{ tx: Math.floor(w / 2) - 1, ty: Math.floor(h / 2) - 1 }, { tx: Math.floor(w * 0.25), ty: Math.floor(h * 0.72) }, { tx: Math.floor(w * 0.72), ty: Math.floor(h * 0.25) }],
+      expansions: expansionSpots(w, h, starts),
     },
     teams,
     aiOpts: three ? { 2: { targetTeam: 1 } } : {},

@@ -410,7 +410,7 @@ class Renderer {
     ctx.restore();
     // Training progress
     if (b.queue.length && b.team === g.player) {
-      const k = b.prog / UNITS[b.queue[0]].time;
+      const k = b.prog / g.itemTime(b, b.queue[0]);
       const w = S * 0.6;
       Art.rrect(ctx, b.x - w / 2, b.y + S / 2 - 6, w, 8, 4, '#ffffff', OUTLINE, 1.6);
       Art.rrect(ctx, b.x - w / 2 + 1.5, b.y + S / 2 - 4.5, Math.max(0, (w - 3) * k), 5, 2.5, col.main, null);

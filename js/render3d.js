@@ -82,9 +82,9 @@ class Renderer3D {
     this.ringMats = {
       own: basicMat('#3dff8a', 0.95), enemy: basicMat('#ff4d4d', 0.95), ally: basicMat('#ffe14d', 0.95),
       ownH: basicMat('#3dff8a', 0.5), enemyH: basicMat('#ff4d4d', 0.5), allyH: basicMat('#ffe14d', 0.5),
-      range: basicMat('#ffffff', 0.5), disc: basicMat('#ffffff', 0.09), ok: basicMat('#50ff78', 0.4), bad: basicMat('#ff3c3c', 0.45),
+      range: basicMat('#ffffff', 0.5), disc: basicMat('#ffffff', 0.09), exp: basicMat('#ffe14d', 0.35), ok: basicMat('#50ff78', 0.4), bad: basicMat('#ff3c3c', 0.45),
     };
-    this.rings = []; this.discs = []; this.thinRings = [];
+    this.rings = []; this.discs = []; this.thinRings = []; this.expMarks = [];
 
     const instMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.18 });
     this.projMesh = new THREE.InstancedMesh(GEO.sphere, instMat, 400);
@@ -329,6 +329,7 @@ class Renderer3D {
     if (P.wings) for (const w of P.wings) w.rotation.x = -w.userData.side * (0.15 + Math.sin(t * 32) * 0.45);
     if (P.carry) P.carry.visible = u.carry > 0;
     if (P.rain) { P.rain.visible = u.attackAnim > 0; P.rain.position.y = -10 - ((t * 60) % 8); }
+    if (P.orbit) P.orbit.rotation.y = t * 1.6;
   }
 
   updateBuilding(v, b, dt, now, dying) {
@@ -349,10 +350,15 @@ class Renderer3D {
     if (P.eggs) P.eggs.forEach((e, i) => { e.rotation.z = Math.sin(t * 3 + i * 2) * 0.13; });
     if (P.wings) for (const w of P.wings) w.rotation.z = w.userData.side * Math.sin(t * 3) * 0.3;
     if (P.smoke) P.smoke.forEach((s, i) => {
-      const p = (t * 0.5 + i / 3) % 1;
-      s.position.set(28 + p * 12, 82 + p * 34, -14);
+      const p = (t * 0.5 + i / 3) % 1, at = P.smokeAt || [28, 82, -14];
+      s.position.set(at[0] + p * 12, at[1] + p * 34, at[2]);
       s.scale.setScalar(4 + p * 9);
       s.material.opacity = (1 - p) * 0.9;
+    });
+    if (P.bubbles) P.bubbles.forEach((m, i) => {
+      const p = (t * 0.7 + i / 3) % 1;
+      m.position.set(-10 + Math.sin(t * 3 + i) * 3, 52 + p * 26, 0);
+      m.scale.setScalar(2 + p * 3);
     });
     if (P.pulse) P.pulse.scale.y = P.pulseY * (1 + Math.sin(t * 3) * 0.05);
     if (P.swirl) P.swirl.rotation.z = t * 2.2;
@@ -405,7 +411,7 @@ class Renderer3D {
 
   updateMarkers(st) {
     const g = this.game;
-    let ri = 0, di = 0, ti = 0;
+    let ri = 0, di = 0, ti = 0, ei = 0;
     const ring = (e, hover) => {
       const m = this.pooled(this.rings, ringGeo, ri++);
       m.material = this.ringMats[this.relation(e.team) + (hover ? 'H' : '')];
@@ -446,6 +452,14 @@ class Renderer3D {
       }
       this.ghost.visible = true;
       this.ghost.position.set(cx, 0, cz);
+      if (BUILDINGS[gh.type].isBase) {
+        for (const e of g.freeExpansions()) {
+          const m = this.pooled(this.expMarks, flatPlane, ei++);
+          m.material = this.ringMats.exp;
+          m.position.set((e.tx + 2) * TILE, 1.4, (e.ty + 2) * TILE);
+          m.scale.set(4 * TILE, 1, 4 * TILE);
+        }
+      }
     } else {
       this.footprint.visible = false;
       if (this.ghost) this.ghost.visible = false;
@@ -453,6 +467,7 @@ class Renderer3D {
     for (let i = ri; i < this.rings.length; i++) this.rings[i].visible = false;
     for (let i = di; i < this.discs.length; i++) this.discs[i].visible = false;
     for (let i = ti; i < this.thinRings.length; i++) this.thinRings[i].visible = false;
+    for (let i = ei; i < this.expMarks.length; i++) this.expMarks[i].visible = false;
   }
 
   makeGhost(type) {
@@ -580,7 +595,7 @@ class Renderer3D {
       if (vis(p, 100)) this.bar(b, p, selected.has(b), b.size * TILE * 0.7 * z);
       if (b.queue.length && b.team === g.player) {
         const q = this.project(b.x, b.y + b.size * TILE * 0.5, 0);
-        const k = b.prog / UNITS[b.queue[0]].time, w = b.size * TILE * 0.6 * z;
+        const k = b.prog / g.itemTime(b, b.queue[0]), w = b.size * TILE * 0.6 * z;
         Art.rrect(ctx, q.x - w / 2, q.y - 4, w, 8, 4, '#ffffff', OUTLINE, 1.6);
         Art.rrect(ctx, q.x - w / 2 + 1.5, q.y - 2.5, Math.max(0, (w - 3) * k), 5, 2.5, g.teams[b.team].color.main, null);
       }
@@ -588,6 +603,27 @@ class Renderer3D {
     for (const u of g.units) {
       const p = this.project(u.x, u.y, (u.air ? AIR_H + u.radius * 1.5 : u.radius * 3.1) + 8);
       if (vis(p)) this.bar(u, p, selected.has(u), Math.max(22, u.radius * 2.2) * z);
+    }
+
+    // Planned path of selected units (shows queued Shift orders).
+    ctx.lineWidth = 2;
+    for (const u of g.selection) {
+      if (u.kind !== 'unit' || u.team !== g.player || u.dead) continue;
+      const pts = [];
+      if (u.state === 'move' && u.goal) pts.push({ ...u.goal, am: u.attackMove });
+      else if (u.state === 'attack' && u.target && !u.target.dead) pts.push({ x: u.target.x, y: u.target.y, am: true });
+      else if (u.state === 'build' && u.site) pts.push({ x: u.site.x, y: u.site.y });
+      for (const o of u.orders) pts.push(o.kind === 'attack' ? { x: o.target.x, y: o.target.y, am: true } : { x: o.x, y: o.y, am: o.kind === 'amove' });
+      if (!pts.length) continue;
+      let a = this.project(u.x, u.y, 0);
+      for (const p of pts) {
+        const b = this.project(p.x, p.y, 0);
+        ctx.strokeStyle = p.am ? 'rgba(255,90,90,0.75)' : 'rgba(90,255,140,0.75)';
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.beginPath(); ctx.arc(b.x, b.y, 3.5, 0, TAU); ctx.fill();
+        a = b;
+      }
     }
 
     // Rally point of the selected building

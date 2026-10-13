@@ -69,7 +69,7 @@ const { serve, launch } = require('./serve');
     const err = g.cmdBuild(0, 'kaserne', base.tx + 6, base.ty);
     if (err) throw new Error('build failed: ' + err);
   });
-  await page.evaluate(() => { for (let k = 0; k < 30 * 22; k++) App.game.update(1 / 30); });
+  await page.evaluate(() => { for (let k = 0; k < 30 * 32; k++) App.game.update(1 / 30); }); // worker walks there, then 20 s to build
   await page.evaluate(() => {
     const g = App.game; const k = g.buildings.find((b) => b.type === 'kaserne');
     for (let i = 0; i < 5; i++) { const e = g.cmdTrain(k, 'malersoldat'); if (e) throw new Error(e); }
@@ -144,12 +144,12 @@ const { serve, launch } = require('./serve');
   if (shots) await page.screenshot({ path: shots + '/pause.png' });
   await page.keyboard.press('p');
 
-  // Command modes: "Løp hit", rally point and cancelling a queued unit.
+  // Command modes: rally point, cancelling a queued unit, StarCraft controls and simple controls.
   const modes = await page.evaluate(() => {
     const g = App.game, inp = App.input, hud = App.hud;
     const out = {};
     const base = g.buildings.find((b) => b.team === 0 && b.def.isBase);
-    g.teams[0].crystals = 1000;
+    g.teams[0].crystals = 3000;
     inp.select([base]); hud.update(0);
     hud.cmdList.find((c) => c.text && c.text.startsWith('Samlings')).fn();
     out.rallyMode = inp.mode && inp.mode.type;
@@ -160,22 +160,108 @@ const { serve, launch } = require('./serve');
     const before = g.teams[0].crystals;
     g.cancelTrain(base, 1);
     out.refund = g.teams[0].crystals - before;
-    const portal = g.buildings.find((b) => b.type === 'portal');
-    for (let k = 0; k < 30 * 25; k++) g.update(1 / 30);
-    g.cmdTrain(portal, 'lysvokter');
-    for (let k = 0; k < 30 * 16; k++) g.update(1 / 30);
-    const v = g.units.find((u) => u.type === 'lysvokter');
-    out.trained = !!v;
+    for (let k = 0; k < 30 * 35; k++) g.update(1 / 30);
+    const portal = g.buildings.find((b) => b.type === 'portal' && b.built >= 1);
+    out.portalBuilt = !!portal;
+    if (!portal) return out;
+    g.cmdTrain(portal, 'lysvokter'); g.cmdTrain(portal, 'lysvokter');
+    for (let k = 0; k < 30 * 30; k++) g.update(1 / 30);
+    const vs = g.units.filter((u) => u.type === 'lysvokter');
+    const v = vs[0];
+    out.trained = vs.length;
+    // --- StarCraft mode ---
+    inp.sc = true;
+    inp.select(vs); hud.update(0);
+    out.scKeys = hud.cmdList.map((c) => c.key).join('');
+    // right click on the ground = plain move
+    const a = App.renderer.project(v.x + 200, v.y, 0);
+    inp.rightClick(a.x, a.y, false);
+    out.rightMove = v.state === 'move' && !v.attackMove;
+    // Shift + right click queues a second waypoint
+    const b2 = App.renderer.project(v.x + 200, v.y + 150, 0);
+    inp.rightClick(b2.x, b2.y, true);
+    out.queued = v.orders.length;
+    // Q then left click = attack-move
+    inp.onKey({ code: 'KeyQ', key: 'q', preventDefault() {}, target: document.body }, true);
+    out.attackMode = inp.mode && inp.mode.type;
+    inp.click(a.x, a.y, false, false);
+    out.attackMove = v.state === 'move' && v.attackMove;
+    // H = hold position, X = stop
+    inp.onKey({ code: 'KeyH', key: 'h', preventDefault() {}, target: document.body }, true);
+    out.hold = v.hold && v.state === 'idle';
+    inp.onKey({ code: 'KeyX', key: 'x', preventDefault() {}, target: document.body }, true);
+    out.stopped = !v.hold && v.state === 'idle';
+    // Ctrl+1 stores a group, 1 selects it again
+    inp.onKey({ code: 'Digit1', key: '1', ctrlKey: true, preventDefault() {}, target: document.body }, true);
+    inp.select([]);
+    inp.onKey({ code: 'Digit1', key: '1', preventDefault() {}, target: document.body }, true);
+    out.group = g.selection.length;
+    // left click on empty ground only deselects in StarCraft mode
+    const far = App.renderer.project(v.x + 300, v.y + 200, 0);
+    inp.select(vs);
+    inp.click(far.x, far.y, false, false);
+    out.leftDeselects = g.selection.length === 0 && v.state === 'idle';
+    // --- simple mode ---
+    inp.sc = false;
     inp.select([v]); hud.update(0);
     hud.cmdList.find((c) => c.text === 'Løp hit').fn();
     out.moveMode = inp.mode && inp.mode.type;
-    const vp = App.renderer.project(v.x + 200, v.y, 0);
-    inp.click(vp.x, vp.y, false);
+    inp.click(a.x, a.y, false);
     out.moving = v.state === 'move' && !v.attackMove;
+    inp.select([v]);
+    inp.click(b2.x, b2.y, false);
+    out.simpleClickAttackMoves = v.state === 'move' && v.attackMove;
+    inp.sc = true;
     return out;
   });
   console.log('modes', modes);
-  if (!(modes.rallyMode === 'rally' && modes.rally && modes.refund === 50 && modes.trained && modes.moveMode === 'move' && modes.moving)) errors.push('command modes failed: ' + JSON.stringify(modes));
+  const okModes = modes.rallyMode === 'rally' && modes.rally && modes.refund === 50 && modes.portalBuilt && modes.trained >= 2 && modes.rightMove &&
+    modes.queued === 1 && modes.attackMode === 'attack' && modes.attackMove && modes.hold && modes.stopped && modes.group === modes.trained &&
+    modes.leftDeselects && modes.moveMode === 'move' && modes.moving && modes.simpleClickAttackMoves;
+  if (!okModes) errors.push('command modes failed: ' + JSON.stringify(modes));
+
+  // WASD moves the camera.
+  const camBefore = await page.evaluate(() => ({ x: App.cam.x, y: App.cam.y }));
+  await page.mouse.move(640, 400);
+  await page.keyboard.down('d'); await page.keyboard.down('s');
+  await page.waitForTimeout(1200);
+  await page.keyboard.up('d'); await page.keyboard.up('s');
+  const camAfter = await page.evaluate(() => ({ x: App.cam.x, y: App.cam.y }));
+  console.log('camera', camBefore, '->', camAfter);
+  if (!(camAfter.x > camBefore.x + 20 && camAfter.y > camBefore.y + 20)) errors.push('WASD did not move the camera');
+
+  // Expansion, tech building, research and the heavy unit.
+  const feat = await page.evaluate(() => {
+    const g = App.game, out = {};
+    g.teams[0].crystals = 5000;
+    const home = g.buildings.find((b) => b.team === 0 && b.def.isBase);
+    const spots = g.freeExpansions().sort((a, b) => dist2(a.tx, a.ty, home.tx, home.ty) - dist2(b.tx, b.ty, home.tx, home.ty));
+    out.spots = spots.length;
+    out.expandErr = g.cmdBuild(0, 'krystallhjerte', spots[0].tx, spots[0].ty);
+    out.builderWalking = g.units.some((u) => u.team === 0 && u.state === 'build');
+    out.tooFar = g.cmdBuild(0, 'portal', spots[spots.length - 1].tx, spots[spots.length - 1].ty);
+    const helper = new AI(g, 0, 'middels', { attack: false });
+    out.labPlaced = helper.placeBuilding('lysakademi', home);
+    for (let k = 0; k < 30 * 90; k++) g.update(1 / 30);
+    out.bases = g.buildings.filter((b) => b.team === 0 && b.def.isBase && b.built >= 1).length;
+    const lab = g.buildings.find((b) => b.team === 0 && b.type === 'lysakademi' && b.built >= 1);
+    out.lab = !!lab;
+    if (!lab) return out;
+    out.researchErr = g.cmdResearch(lab, 'dmg');
+    out.doubleResearch = g.cmdResearch(lab, 'dmg');
+    const portal = g.buildings.find((b) => b.team === 0 && b.type === 'portal');
+    out.heavyErr = g.cmdTrain(portal, 'lyskjempe');
+    for (let k = 0; k < 30 * 35; k++) g.update(1 / 30);
+    out.dmgLevel = g.teams[0].up.dmg;
+    out.heavy = g.units.some((u) => u.team === 0 && u.type === 'lyskjempe');
+    return out;
+  });
+  console.log('features', feat);
+  if (!(feat.spots > 0 && feat.expandErr === null && feat.builderWalking && feat.tooFar && feat.labPlaced && feat.bases === 2 && feat.lab &&
+    feat.researchErr === null && feat.doubleResearch && feat.heavyErr === null && feat.dmgLevel === 1 && feat.heavy)) errors.push('expansion/tech failed: ' + JSON.stringify(feat));
+  await page.evaluate(() => { const g = App.game; const h = g.units.find((u) => u.type === 'lyskjempe'); if (h) { App.input.select([h]); App.input.centerOn(h.x, h.y); } });
+  await page.waitForTimeout(1500);
+  if (shots) await page.screenshot({ path: shots + '/heavy.png' });
 
   // Tablet-sized layout
   await page.setViewportSize({ width: 820, height: 600 });

@@ -25,27 +25,36 @@ The workflow in `.github/workflows/pages.yml` publishes the game.
 
 ## How to play
 
-| Action | Mouse | Touch | Keys |
-| --- | --- | --- | --- |
-| Select | Click a unit, or drag a box around units | Tap | `A` all soldiers, `B` all workers |
-| Move or attack | Click the ground or an enemy (right click also works) | Tap | |
-| Walk without fighting | Press **Løp hit**, then click | Same | |
-| Build | Select the base or a worker, press a building button, click the ground | Same | `1`–`9` press the buttons |
-| Rally point | Right click with a building selected, or press **Samlingspunkt** | Same | |
-| Move the map | Screen edges, minimap, or mouse wheel to zoom | Drag with one finger, or tap the minimap | Arrow keys, `Space` jumps to your base |
-| Pause | **Pause** button | Same | `P`, `Esc` cancels |
+There are two control styles. Switch between them with **Styring** in the main menu or the pause menu. The choice is remembered.
 
-Some rules keep things simple for young players:
+**StarCraft controls** (the default):
 
-- Soldiers walk in attack-move by default, so they fight whatever they meet on the way.
-- Workers start gathering crystals by themselves.
-- There is only one resource (crystals) and a fixed limit of 50 units. There is no supply to manage.
-- Buildings construct themselves once placed, but only near your own buildings.
+| Action | How |
+| --- | --- |
+| Select | Left click a unit or building. Drag a box to select many (soldiers win over workers). Double click or `Ctrl`+click selects all of that type on screen. `Shift`+click adds or removes. |
+| Move, attack, gather | Right click the ground (plain move, ignores enemies), an enemy (attack), or crystals (workers gather). Right click a foundation with a worker to build it. |
+| Attack-move | `Q`, then left click: fight everything on the way. |
+| Stop, hold position | `X` stops. `H` holds position (shoots what comes in range, never walks away). |
+| Queue orders | Hold `Shift` while giving orders. The planned route is drawn as a line. |
+| Control groups | `Ctrl`+`1`–`9` saves the selection, `Shift`+number adds to a group, the number selects it, and pressing it twice jumps the camera to it. |
+| Buttons | Every command button shows its letter hotkey, for example `B` for a base. |
+| Rally point | Right click with a production building selected. |
+
+**Simple controls** (for young children): left click on the ground moves and fights on the way, right click is a plain move, **Løp hit** walks without fighting, and `1`–`9` press the command buttons.
+
+**In both modes:** `W` `A` `S` `D`, the arrow keys, or the screen edges move the camera, and the mouse wheel zooms. `Space` jumps to your bases (press again to cycle through them), `F1` finds an idle worker, `F2` selects the whole army, `P` pauses, and `Esc` cancels. On tablets, drag with one finger to move the map and tap the minimap to jump.
+
+**Building and expanding:**
+
+- Select a worker, press a building button, and click where it should stand. A see-through foundation appears, and the worker walks there and starts the construction. If the worker is lost, another one is sent.
+- Ordinary buildings must stand near your own buildings. A new **base** may also stand next to any crystal field on the map. That is how you expand your territory. While you place a base, free expansion spots glow yellow. Skirmish maps have several expansion fields, and the computer expands too.
+- Each people has a **tech building** (Fargelab, Kongekammer, Lysakademi, Tåkelab). It unlocks a big heavy unit and researches two upgrades in three levels each: more damage (+12 % per level) and more armour (−8 % damage taken per level).
+- There is one resource (crystals) and a limit of 60 units. There is no supply to manage.
 - **Paint matters.** Every hit, and every footstep, leaves paint in your team's colour. Your units walk 30 % faster on your own paint and a little slower on enemy paint. The top bar shows how much of the map each team has painted.
 
 ## The four peoples
 
-Each faction has one worker, three fighters, and four buildings (a base, two production buildings, and a defence tower).
+Each faction has one worker, three fighters, a heavy unit, and five buildings (a base, two production buildings, a defence tower, and a tech building).
 
 | | Stjernevennene (inspired by Terran) | Summerne (Zerg) | Krystallvokterne (Protoss) | Gråskodda (story villain) |
 | --- | --- | --- | --- | --- |
@@ -54,6 +63,8 @@ Each faction has one worker, three fighters, and four buildings (a base, two pro
 | Fighter 1 | Malersoldat (paint blaster, hits air) | Sprettbille (fast, cheap, melee) | Lysvokter (light sword, melee) | Støvdott (fluffy, melee) |
 | Fighter 2 | Rullebil (paint roller plus splash cannon, paints the road) | Spyttsnegl (long range, hits air) | Glimtskytter (long range, hits air) | Gråbot (ranged, hits air) |
 | Flyer | Ballongflyer | Vingesumm | Stjerneseiler (beam) | Tåkesky (splash) |
+| Heavy unit | Malerrobot (twin splash cannons, hits air) | Kjempebille (huge melee beetle, hits all around) | Lyskjempe (floating light giant, splash, hits air) | Tordensky (huge flying cloud, ground bombs) |
+| Tech building | Fargelab | Kongekammer | Lysakademi | Tåkelab |
 | Buildings | Stjernestasjon, Kaserne, Verksted, Vakttårn | Bikube, Klekkeri, Vingereir, Piggsopp | Krystallhjerte, Lysportal, Stjerneport, Lystårn | Skyslottet, Tåkefabrikk, Skyverksted, Grått tårn |
 
 The first three factions are playable in free play (*Fri lek*). Gråskodda can be chosen as the opponent.

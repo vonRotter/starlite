@@ -23,6 +23,9 @@ const App = {
     this.acc = 0;
     this.mmT = 0;
     this.speedIdx = safeStorageGet('starlite.speed', 1);
+    // 'sc' = StarCraft-style controls, 'enkel' = simple click controls for young children.
+    this.controls = safeStorageGet('starlite.controls', 'sc');
+    this.input.sc = this.controls === 'sc';
     this.progress = safeStorageGet('starlite.progress', { unlocked: 1, done: [] });
     this.input.onPause = () => this.togglePause();
 
@@ -45,7 +48,10 @@ const App = {
     window.addEventListener('keydown', unlock);
     window.addEventListener('keydown', (e) => {
       if (this.dialogState && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); this.dialogNext(); }
-      else if (e.key === 'Escape' && this.mode === 'game' && this.paused && !this.dialogState && !this.game.over) this.togglePause();
+      else if ((e.key === 'Escape' || e.code === 'KeyP') && this.mode === 'game' && this.paused && !this.dialogState && !this.game.over) {
+        e.preventDefault();
+        this.togglePause();
+      }
     });
     if (window.speechSynthesis) speechSynthesis.onvoiceschanged = () => {};
 
@@ -136,12 +142,14 @@ const App = {
         <button class="btn small white" id="m-sfx"></button>
         <button class="btn small white" id="m-music"></button>
         <button class="btn small white" id="m-speak"></button>
+        <button class="btn small white" id="m-controls"></button>
       </div>
       <div class="credits">Et fargerikt strategispill for barn. Bygg, samle krystaller og mal planeten Glimra fargerik!</div>`);
     const upd = () => {
       document.getElementById('m-sfx').textContent = 'Lyder: ' + (Sound.state.sfx ? 'på' : 'av');
       document.getElementById('m-music').textContent = 'Musikk: ' + (Sound.state.music ? 'på' : 'av');
       document.getElementById('m-speak').textContent = 'Les høyt: ' + (Sound.state.speak ? 'på' : 'av');
+      document.getElementById('m-controls').textContent = 'Styring: ' + this.controlsName();
     };
     upd();
     this.on('m-story', () => this.showCampaign());
@@ -150,6 +158,15 @@ const App = {
     this.on('m-sfx', () => { Sound.set('sfx', !Sound.state.sfx); upd(); });
     this.on('m-music', () => { Sound.set('music', !Sound.state.music); if (Sound.state.music) Sound.startMusic(); upd(); });
     this.on('m-speak', () => { Sound.set('speak', !Sound.state.speak); upd(); if (Sound.state.speak) Sound.speak('Jeg leser høyt for deg.'); });
+    this.on('m-controls', () => { this.toggleControls(); upd(); });
+  },
+
+  controlsName() { return this.controls === 'sc' ? 'StarCraft' : 'Enkel'; },
+  toggleControls() {
+    this.controls = this.controls === 'sc' ? 'enkel' : 'sc';
+    this.input.sc = this.controls === 'sc';
+    safeStorageSet('starlite.controls', this.controls);
+    if (this.hud) this.hud.dirty = true;
   },
 
   showCampaign() {
@@ -179,15 +196,21 @@ const App = {
     const tip = (title, text, img) => `<div class="tip">${img ? `<img src="${img}" alt="">` : ''}<h4>${title}</h4><p>${text}</p></div>`;
     this.show('screen-howto', `<h2>Slik spiller du</h2><div class="panel"><div class="howto">
       ${tip('1. Velg', 'Klikk på en soldat for å velge den. Dra en firkant rundt mange soldater for å velge alle sammen.', Art.icon('unit', 'malersoldat', P, 64))}
-      ${tip('2. Gå og mal', 'Klikk på bakken for å gå dit. Soldatene maler alle fiender de møter på veien. Klikk på en fiende for å angripe den.', Art.icon('unit', 'rullebil', P, 64))}
+      ${tip('2. Gå og mal', 'Høyreklikk på bakken for å gå dit, eller på en fiende for å angripe. Trykk Q og klikk for å slåss med alt på veien.', Art.icon('unit', 'rullebil', P, 64))}
       ${tip('3. Samle krystaller', 'Byggerne samler krystaller av seg selv. Krystaller bruker du til å bygge hus og lage soldater.', Art.icon('unit', 'byggebot', P, 64))}
-      ${tip('4. Bygg', 'Klikk på basen eller en bygger. Trykk på en bygning nede til høyre, og klikk på bakken der den skal stå.', Art.icon('building', 'kaserne', P, 64))}
-      ${tip('5. Maling', 'Alt du treffer blir malt i din farge. På din egen farge går du fortere!', Art.icon('unit', 'ballongflyer', P, 64))}
-      ${tip('6. Vinn', 'Mal over alle bygningene til fienden. Da blir de glade og fargerike igjen!', Art.icon('building', 'skyslottet', 'grey', 64))}
+      ${tip('4. Bygg', 'Velg en bygger, trykk på en bygning nede til høyre, og klikk der den skal stå. Byggeren går dit og setter i gang.', Art.icon('building', 'kaserne', P, 64))}
+      ${tip('5. Utvid', 'Bygg en ny base ved et krystallfelt et annet sted på kartet. Da får du mer krystaller og kan bygge der også.', Art.icon('building', 'stjernestasjon', P, 64))}
+      ${tip('6. Forsk', 'Bygg Fargelab (eller det ditt folk har) for å forske fram sterkere maling og drakter, og for å lage en kjempeenhet.', Art.icon('unit', 'malerrobot', P, 64))}
+      ${tip('7. Maling', 'Alt du treffer blir malt i din farge. På din egen farge går du fortere!', Art.icon('unit', 'ballongflyer', P, 64))}
+      ${tip('8. Vinn', 'Mal over alle bygningene til fienden. Da blir de glade og fargerike igjen!', Art.icon('building', 'skyslottet', 'grey', 64))}
       </div>
-      <div class="keys"><b>Taster:</b> <kbd>Piltaster</kbd> flytter kartet · <kbd>A</kbd> alle soldater · <kbd>B</kbd> alle byggere ·
-      <kbd>Mellomrom</kbd> til basen · <kbd>1</kbd>–<kbd>9</kbd> knappene · <kbd>Esc</kbd> avbryt · <kbd>P</kbd> pause.<br>
-      På nettbrett: dra med én finger for å flytte kartet, og trykk på minikartet for å hoppe dit.</div></div>
+      <div class="keys"><b>Alltid:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> eller piltaster flytter kartet · musehjulet zoomer ·
+      <kbd>Mellomrom</kbd> til basene dine · <kbd>F1</kbd> ledig bygger · <kbd>F2</kbd> alle soldater · <kbd>Esc</kbd> avbryt · <kbd>P</kbd> pause.<br>
+      <b>StarCraft-styring:</b> venstreklikk velger · høyreklikk går, angriper og samler · <kbd>Q</kbd> angrip-gå · <kbd>X</kbd> stopp ·
+      <kbd>H</kbd> hold posisjon · <kbd>Shift</kbd> legger ordre i kø · <kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>9</kbd> lagrer gruppe, <kbd>1</kbd>–<kbd>9</kbd> velger den ·
+      bokstaven på hver knapp er snarveien.<br>
+      <b>Enkel styring:</b> klikk på bakken for å gå og slåss · høyreklikk går uten å slåss · <kbd>1</kbd>–<kbd>9</kbd> trykker knappene.<br>
+      Du bytter styring i menyen eller i pausen. På nettbrett: dra med én finger for å flytte kartet.</div></div>
       <div class="row-buttons"><button class="btn white" id="h-back">Tilbake</button></div>`);
     this.on('h-back', () => this.showMenu());
   },
@@ -305,6 +328,7 @@ const App = {
         <button class="btn big" id="p-resume">Fortsett</button>
         <button class="btn white" id="p-speed">Fart: ${SPEEDS[this.speedIdx].name}</button>
         <button class="btn white" id="p-music">Musikk: ${Sound.state.music ? 'på' : 'av'}</button>
+        <button class="btn white" id="p-controls">Styring: ${this.controlsName()}</button>
         <button class="btn white" id="p-restart">Start på nytt</button>
         <button class="btn pink" id="p-quit">Til menyen</button></div>`, true);
       this.on('p-resume', () => this.togglePause());
@@ -315,6 +339,7 @@ const App = {
         render();
       });
       this.on('p-music', () => { Sound.set('music', !Sound.state.music); if (Sound.state.music) Sound.startMusic(); render(); });
+      this.on('p-controls', () => { this.toggleControls(); render(); });
       this.on('p-restart', () => this.restart());
       this.on('p-quit', () => this.quitToMenu());
     };

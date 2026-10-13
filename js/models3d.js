@@ -366,6 +366,69 @@ U.taakesky = (root, c) => {
   return P;
 };
 
+// --- heavy units ---
+U.malerrobot = (root, c, grump) => {
+  const b = group(root), P = { body: b, legs: [] };
+  for (const z of [-7, 7]) {
+    P.legs.push(part(b, GEO.box, mat(DARK), { y: 8, z, sc: [8, 16, 6] }));
+    part(b, GEO.box, mat(DARK), { x: 2, y: 1.5, z, sc: [12, 3, 7] });
+  }
+  part(b, GEO.box, mat(c.main), { y: 24, sc: [22, 16, 24] });
+  part(b, GEO.sphere, mat(c.light, { rough: 0.15 }), { x: 6, y: 34, sc: [9, 8, 10] });
+  eyes(b, 13.5, 35, 3.6, 3, grump);
+  part(b, GEO.sphere, mat(c.light), { x: -12, y: 28, s: 7 });
+  const w = group(b, { y: 26 });
+  for (const z of [-15, 15]) {
+    part(w, GEO.sphere, mat(c.dark), { z, s: 5.5 });
+    part(w, GEO.cyl, mat('#5a5a78'), { x: 9, z, sc: [3.6, 16, 3.6], rz: -Math.PI / 2 });
+    part(w, GEO.cyl, mat(c.main), { x: 17, z, sc: [4.4, 3, 4.4], rz: -Math.PI / 2 });
+  }
+  P.weapon = w;
+  return P;
+};
+
+U.kjempebille = (root, c, grump) => {
+  const b = group(root), P = { body: b };
+  for (const x of [-8, 0, 8]) for (const z of [-1, 1]) part(b, GEO.cyl, mat(DARK), { x, y: 5, z: z * 11, sc: [1.6, 11, 1.6], rx: z * 0.7, ow: 0.8 });
+  part(b, GEO.sphere, mat(c.main), { y: 15, sc: [20, 13, 15] });
+  part(b, GEO.box, mat('#2a2440'), { y: 27.5, sc: [30, 1.4, 1.6], ow: 0 });
+  for (const [x, z] of [[-8, 6], [4, -7], [-12, -5], [8, 6]]) part(b, GEO.sphere, mat(c.light), { x, y: 24, z, s: 3, ow: 0 });
+  part(b, GEO.sphere, mat(DARK), { x: 18, y: 13, s: 8.5 });
+  eyes(b, 24, 16, 3.8, 3, grump);
+  part(b, GEO.cone, mat('#fff3df', { rough: 0.2 }), { x: 26, y: 24, sc: [3.4, 16, 3.4], rz: -0.5 });
+  for (const z of [-1, 1]) part(b, GEO.cone, mat('#fff3df', { rough: 0.2 }), { x: 25, y: 8, z: z * 7, sc: [2.4, 12, 2.4], rz: -1.9, rx: z * 0.3 });
+  return P;
+};
+
+U.lyskjempe = (root, c, grump) => {
+  const b = group(root), P = { body: b, float: true };
+  part(b, GEO.torus, mat(c.light, { glow: 0.7 }), { y: 2, s: 12, rx: Math.PI / 2, ow: 0, shadow: false });
+  part(b, GEO.ico, mat(c.light, { flat: true, glow: 0.35, rough: 0.1 }), { y: 22, s: 15 });
+  part(b, GEO.ico, mat(c.main, { flat: true, glow: 0.5 }), { y: 22, s: 10, ry: 0.5, ow: 0 });
+  eyes(b, 12.5, 25, 4.2, 3.6, grump);
+  P.orbit = group(b, { y: 22 });
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    part(P.orbit, GEO.octa, mat(c.main, { flat: true, glow: 0.4 }), { x: Math.cos(a) * 22, z: Math.sin(a) * 22, sc: [3, 6, 3] });
+  }
+  return P;
+};
+
+U.tordensky = (root, c) => {
+  const b = group(root), P = { body: b, float: true };
+  for (const [x, y, z, r] of [[-12, 0, 0, 11], [0, 6, 0, 14], [12, 1, 0, 11], [4, -1, 9, 11], [-6, -1, -9, 11], [3, 0, -9, 10], [-4, 3, 8, 10]]) {
+    part(b, GEO.sphere, mat(c.dark, { rough: 0.55 }), { x, y, z, s: r });
+  }
+  eyes(b, 13.5, 4, 4.6, 3.8, true);
+  // lightning bolt
+  const bolt = group(b, { y: -14 });
+  part(bolt, GEO.box, mat('#ffe14d', { glow: 0.8 }), { x: 0, y: 0, sc: [2.4, 9, 2.4], rz: 0.5, ow: 0.8 });
+  part(bolt, GEO.box, mat('#ffe14d', { glow: 0.8 }), { x: 2, y: -7, sc: [2.4, 9, 2.4], rz: -0.5, ow: 0.8 });
+  P.rain = bolt;
+  bolt.visible = false;
+  return P;
+};
+
 export function buildUnit(type, c, grump) {
   const root = new THREE.Group();
   root.userData.ow = 1.5;
@@ -573,6 +636,76 @@ B.graataarn = (g, c, S) => {
   cloud(t, [[-8, 0, -4, 9], [2, 4, 0, 11], [10, 0, 3, 8], [-2, 0, 7, 8]], c.light);
   eyes(t, 10, 4, 3.6, 3.2, true);
   P.turret = t;
+  return P;
+};
+
+// --- tech buildings ---
+B.fargelab = (g, c, S, grump) => {
+  const P = {};
+  pad(g, S, PAD.stjerne);
+  part(g, GEO.box, mat('#f4f6fb'), { y: 22, sc: [72, 30, 56] });
+  part(g, GEO.box, mat(c.main), { y: 38.5, sc: [76, 4, 60] });
+  part(g, GEO.sphere, mat('#bfeaff', { opacity: 0.55, rough: 0.05 }), { x: -10, y: 40, s: 22, ow: 1.4 });
+  P.flask = part(g, GEO.cyl, mat(c.main, { glow: 0.3 }), { x: -10, y: 44, sc: [7, 12, 7] });
+  part(g, GEO.cyl, mat('#d8deea'), { x: 24, y: 54, z: -12, sc: [6, 28, 6] });
+  P.bubbles = [];
+  for (let i = 0; i < 3; i++) {
+    const m = new THREE.Mesh(GEO.sphere, mat(c.light, { glow: 0.3 }));
+    m.castShadow = false;
+    g.add(m);
+    P.bubbles.push(m);
+  }
+  part(g, GEO.box, mat('#5a5a78'), { x: 14, y: 16, z: 28, sc: [16, 20, 3] });
+  for (const x of [-26, -8]) part(g, GEO.sphere, mat(c.light, { glow: 0.2 }), { x, y: 22, z: 27.6, sc: [5, 5, 2], ow: 0.8 });
+  return P;
+};
+B.kongekammer = (g, c, S, grump) => {
+  pad(g, S, PAD.summ);
+  part(g, GEO.hemi, mat(c.main), { y: 6, sc: [38, 36, 34] });
+  for (let i = 0; i < 4; i++) part(g, GEO.torus, mat(c.light), { y: 10 + i * 8, s: 37 - i * 6, rx: Math.PI / 2, ow: 0 });
+  part(g, GEO.cyl, mat('#ffd23f', { rough: 0.15 }), { y: 44, sc: [14, 7, 14] });
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    part(g, GEO.cone, mat('#ffd23f', { rough: 0.15 }), { x: Math.cos(a) * 11, y: 52, z: Math.sin(a) * 11, sc: [3.4, 9, 3.4], ow: 0.8 });
+  }
+  part(g, GEO.sphere, mat('#3b3552'), { y: 14, z: 31, sc: [11, 9, 4], ow: 0 });
+  eyes(g, 28, 28, 10, 5.5, grump, 'z');
+  for (const [x, z] of [[-34, 22], [34, 20]]) part(g, GEO.sphere, mat('#ffcf3a', { rough: 0.1 }), { x, y: 8, z, sc: [7, 6, 7] });
+  return {};
+};
+B.lysakademi = (g, c, S, grump) => {
+  const P = {};
+  pad(g, S, PAD.krystall, true);
+  for (const [x, z] of [[-26, -22], [26, -22], [-26, 22], [26, 22]]) part(g, GEO.cyl, mat('#f2fbff'), { x, y: 26, z, sc: [5, 44, 5] });
+  part(g, GEO.disc, mat(c.main), { y: 50, sc: [40, 5, 34] });
+  part(g, GEO.cone, mat(c.light, { flat: true }), { y: 62, sc: [34, 20, 30] });
+  P.pulse = crystalGem(g, 0, 8, 0, 34, 9, c.main, null, 0.5);
+  P.orbit = group(g, { y: 30 });
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    part(P.orbit, GEO.octa, mat(c.light, { flat: true, glow: 0.4 }), { x: Math.cos(a) * 16, z: Math.sin(a) * 16, sc: [3, 5, 3] });
+  }
+  eyes(g, 9, 30, 4, 3.2, grump, 'z');
+  return P;
+};
+B.taakelab = (g, c, S) => {
+  const P = { smoke: [] };
+  pad(g, S, PAD.graa);
+  part(g, GEO.box, mat(c.main), { x: -10, y: 22, sc: [52, 34, 54] });
+  for (const [x, z] of [[28, -14], [28, 14]]) {
+    part(g, GEO.cyl, mat(c.dark), { x, y: 16, z, sc: [11, 26, 11] });
+    part(g, GEO.hemi, mat(c.light, { glow: 0.15 }), { x, y: 29, z, s: 11 });
+  }
+  part(g, GEO.cyl, mat('#5a5a78'), { x: 12, y: 30, sc: [2.5, 26, 2.5], rz: Math.PI / 2, ow: 0.8 });
+  for (let i = 0; i < 3; i++) {
+    const m = new THREE.MeshStandardMaterial({ color: '#d0d3da', roughness: 0.6, transparent: true, opacity: 0.9, depthWrite: false });
+    const s = new THREE.Mesh(GEO.sphere, m);
+    g.add(s);
+    P.smoke.push(s);
+  }
+  P.smokeAt = [28, 30, -14];
+  part(g, GEO.box, mat('#4a4466'), { x: -10, y: 16, z: 27.5, sc: [18, 20, 3] });
+  eyes(g, 27.5, 30, 12, 4.5, true, 'z');
   return P;
 };
 

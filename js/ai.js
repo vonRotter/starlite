@@ -1,6 +1,7 @@
 'use strict';
 // A simple computer opponent: gathers, follows a small build plan, trains an
-// army, defends its base and attacks in waves that grow over time.
+// army, expands to new crystal fields, researches upgrades, defends its base
+// and attacks in waves that grow over time.
 
 class AI {
   // opts: { attack: bool, build: bool, firstAttack: s, wave: n, unitMix: {type: weight} }
@@ -14,15 +15,20 @@ class AI {
     this.wave = this.opts.wave != null ? this.opts.wave : this.diff.wave;
     this.nextAttack = this.opts.firstAttack != null ? this.opts.firstAttack : this.diff.firstAttack;
     this.threat = null;
-    const b = game.teams[teamId].f.builds; // [prodA, prodB, tower, base]
+    const b = game.teams[teamId].f.builds; // [prodA, prodB, tower, base, tech]
     const plans = {
       fredelig: [[b[0], 1], [b[2], 1], [b[1], 1]],
       supersnill: [[b[0], 1], [b[2], 1], [b[1], 1]],
-      lett: [[b[0], 1], [b[2], 1], [b[1], 1], [b[2], 2]],
-      middels: [[b[0], 1], [b[2], 1], [b[1], 1], [b[0], 2], [b[2], 2]],
-      vanskelig: [[b[0], 1], [b[0], 2], [b[2], 1], [b[1], 1], [b[2], 2], [b[1], 2], [b[2], 3]],
+      lett: [[b[0], 1], [b[2], 1], [b[1], 1], [b[2], 2], [b[4], 1]],
+      middels: [[b[0], 1], [b[2], 1], [b[1], 1], [b[4], 1], [b[0], 2], [b[2], 2]],
+      vanskelig: [[b[0], 1], [b[0], 2], [b[2], 1], [b[1], 1], [b[4], 1], [b[2], 2], [b[1], 2], [b[2], 3]],
     };
     this.plan = this.opts.plan || plans[diffKey] || plans.lett;
+    // When to take a new base, and how many bases at most.
+    const expand = { lett: [420, 2], middels: [280, 2], vanskelig: [200, 3] }[diffKey] || [Infinity, 1];
+    this.expandAt = this.opts.expandAt != null ? this.opts.expandAt : expand[0];
+    this.maxBases = this.opts.maxBases != null ? this.opts.maxBases : expand[1];
+    this.research = this.opts.research != null ? this.opts.research : diffKey === 'middels' || diffKey === 'vanskelig';
   }
 
   underAttack(src) { this.threat = src; }
@@ -45,8 +51,9 @@ class AI {
     for (const w of workers) if (w.state === 'idle') g.gatherNearest(w);
 
     // 1. Workers
-    const queuedWorkers = bases.reduce((n, b) => n + b.queue.filter((q) => UNITS[q].worker).length, 0);
-    if (bases.length && workers.length + queuedWorkers < this.diff.workers) {
+    const queuedWorkers = bases.reduce((n, b) => n + b.queue.filter((q) => UNITS[q] && UNITS[q].worker).length, 0);
+    const wantWorkers = this.diff.workers + (bases.length - 1) * 6;
+    if (bases.length && workers.length + queuedWorkers < wantWorkers) {
       const b = bases.find((x) => x.queue.length === 0);
       if (b && T.crystals >= UNITS[f.worker].cost) g.cmdTrain(b, f.worker);
     }
@@ -64,10 +71,28 @@ class AI {
       }
     }
 
+    // 2b. Expand to a new crystal field when it is time (or the home field runs dry).
+    if (this.opts.build !== false && bases.length) reserve = Math.max(reserve, this.thinkExpand(bases, blds));
+    this.balanceWorkers(bases, workers);
+
+    // 2c. Research
+    if (this.research) {
+      for (const b of blds) {
+        if (b.built < 1 || !b.def.research || b.queue.length) continue;
+        for (const key of b.def.research) {
+          const st = g.researchState(this.team, key);
+          if (st.max || st.busy) continue;
+          if (T.crystals >= UPGRADES[key].cost[st.level] + 150) { g.cmdResearch(b, key); break; }
+        }
+      }
+    }
+
     // 3. Army
     for (const b of blds) {
       if (b.built < 1 || !b.def.trains || b.def.isBase || b.queue.length >= 2) continue;
-      const type = this.pickUnit(b.def.trains);
+      const choices = b.def.trains.filter((t) => !g.missingReq(this.team, UNITS[t]));
+      if (!choices.length) continue;
+      const type = this.pickUnit(choices);
       if (T.crystals - UNITS[type].cost >= reserve * 0.5) g.cmdTrain(b, type);
     }
 
@@ -113,15 +138,44 @@ class AI {
   }
 
   pickUnit(list) {
-    const mix = this.opts.unitMix;
-    if (mix) {
-      const opts = list.filter((t) => mix[t]);
-      if (opts.length) {
-        let sum = opts.reduce((s, t) => s + mix[t], 0), r = Math.random() * sum;
-        for (const t of opts) { r -= mix[t]; if (r <= 0) return t; }
-      }
-    }
-    return list[Math.floor(Math.random() * list.length)];
+    const mix = this.opts.unitMix || {};
+    // Heavy units are expensive, so pick them less often.
+    const weight = (t) => (mix[t] != null ? mix[t] : UNITS[t].heavy ? 0.45 : 1);
+    const opts = list.filter((t) => weight(t) > 0);
+    if (!opts.length) return list[0];
+    let r = Math.random() * opts.reduce((s, t) => s + weight(t), 0);
+    for (const t of opts) { r -= weight(t); if (r <= 0) return t; }
+    return opts[opts.length - 1];
+  }
+
+  // Returns crystals to save up for a new base (0 if not expanding now).
+  thinkExpand(bases, blds) {
+    const g = this.g, T = g.teams[this.team], baseType = T.f.base;
+    const building = blds.some((b) => b.def.isBase && b.built < 1);
+    if (building || bases.length >= this.maxBases) return 0;
+    const home = bases[0];
+    const nearHome = g.resources.filter((r) => dist(r.x, r.y, home.x, home.y) < 12 * TILE).length;
+    if (g.time < this.expandAt && nearHome > 2) return 0;
+    const spots = g.freeExpansions().filter((e) => !g.units.some((u) => g.isEnemy(this.team, u.team) && dist(u.x, u.y, (e.tx + 2) * TILE, (e.ty + 2) * TILE) < 300));
+    if (!spots.length) return 0;
+    spots.sort((a, b) => dist2(a.tx, a.ty, home.tx, home.ty) - dist2(b.tx, b.ty, home.tx, home.ty));
+    const cost = BUILDINGS[baseType].cost;
+    if (T.crystals < cost) return cost;
+    g.cmdBuild(this.team, baseType, spots[0].tx, spots[0].ty);
+    return 0;
+  }
+
+  // Send workers from crowded bases to bases with few workers.
+  balanceWorkers(bases, workers) {
+    if (bases.length < 2) return;
+    const g = this.g;
+    const near = (b) => workers.filter((w) => w.res && !w.res.dead && dist(w.res.x, w.res.y, b.x, b.y) < 10 * TILE);
+    const fields = bases.map((b) => ({ b, ws: near(b), res: g.resources.filter((r) => dist(r.x, r.y, b.x, b.y) < 10 * TILE) }));
+    const poor = fields.find((f) => f.res.length && f.ws.length < Math.min(6, f.res.length));
+    const rich = fields.slice().sort((a, b) => b.ws.length - a.ws.length)[0];
+    if (!poor || !rich || rich === poor || rich.ws.length <= poor.ws.length + 2) return;
+    const move = rich.ws.filter((w) => w.state === 'gather').slice(0, 2);
+    for (const w of move) g.cmdGather([w], poor.res[Math.floor(Math.random() * poor.res.length)]);
   }
 
   pickTarget(from) {

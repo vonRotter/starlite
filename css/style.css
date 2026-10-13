@@ -249,6 +249,9 @@ kbd { background: #fff; border: 2px solid var(--ink); border-bottom-width: 4px; 
 .cmd.poor { opacity: 0.5; }
 .cmd.active { background: var(--lime); }
 .cmd.text { font-size: 15px; font-weight: 700; }
+.cmd .key { font-weight: 700; opacity: 0.7; }
+.cmd.locked { opacity: 0.55; filter: grayscale(0.7); }
+.cmd .lock { position: absolute; bottom: 2px; left: 0; right: 0; font-size: 10px; font-weight: 700; color: #b3126c; }
 .cmd.wide { grid-column: span 2; }
 
 /* ---------- ending ---------- */

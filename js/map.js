@@ -190,10 +190,13 @@ class GameMap {
   }
 }
 
-// Generates a map. bases: [{tx, ty}] top-left tiles of 4x4 bases.
+// Generates a map. bases: [{tx, ty}] top-left tiles of 4x4 starting bases;
+// expansions: extra base spots that get the same cleared area and crystal arc.
 // Returns { map, crystals: [{tx, ty}] }.
 function generateMap(opts) {
-  const { w, h, seed = 1, theme = 'eng', bases = [], fields = [] } = opts;
+  const { w, h, seed = 1, theme = 'eng', fields = [] } = opts;
+  const expansions = (opts.expansions || []).filter((e) => e.tx >= 1 && e.ty >= 1 && e.tx + 4 < w && e.ty + 4 < h);
+  const bases = (opts.bases || []).concat(expansions);
   const th = THEMES[theme] || THEMES.eng;
   const density = opts.density != null ? opts.density : (th.density || 0.085);
   const rng = makeRng(seed * 7919 + 13);
@@ -292,6 +295,7 @@ function generateMap(opts) {
       color: th.decoColors[Math.floor(rng() * th.decoColors.length)], s: 0.7 + rng() * 0.6, r: rng(),
     });
   }
+  map.expansions = expansions;
   return { map, crystals };
 }
 
@@ -301,4 +305,16 @@ function skirmishStarts(w, h, n) {
     { tx: 4, ty: 4 }, { tx: w - 8, ty: h - 8 }, { tx: w - 8, ty: 4 }, { tx: 4, ty: h - 8 },
   ];
   return all.slice(0, n);
+}
+
+// Expansion base spots around the map (top-left tile of a 4x4 base), leaving
+// out any spot too close to the given starting bases.
+function expansionSpots(w, h, starts) {
+  const cx = Math.floor(w / 2) - 2, cy = Math.floor(h / 2) - 2;
+  const all = [
+    { tx: 6, ty: cy }, { tx: w - 10, ty: cy }, { tx: cx, ty: 6 }, { tx: cx, ty: h - 10 },
+    { tx: 4, ty: 4 }, { tx: w - 8, ty: 4 }, { tx: 4, ty: h - 8 }, { tx: w - 8, ty: h - 8 },
+    { tx: cx, ty: cy },
+  ];
+  return all.filter((e) => starts.every((s) => Math.hypot(e.tx - s.tx, e.ty - s.ty) > 12));
 }

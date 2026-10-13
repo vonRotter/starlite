@@ -53,6 +53,7 @@ class Game {
       noDefeat: !!t.noDefeat,
       gathered: 0, lost: 0, killed: 0, made: 0,
       incomeMult: 1,
+      up: { dmg: 0, armor: 0 },
       ai: null,
       aiKey: t.ai || null,
     }));
@@ -85,8 +86,20 @@ class Game {
   unitCount(team) {
     let n = 0;
     for (const u of this.units) if (u.team === team && !u.dead) n++;
-    for (const b of this.buildings) if (b.team === team && !b.dead) n += b.queue.length;
+    for (const b of this.buildings) if (b.team === team && !b.dead) n += b.queue.filter((q) => !q.startsWith('up:')).length;
     return n;
+  }
+  hasBuilt(team, type) { return this.buildings.some((b) => b.team === team && b.type === type && b.built >= 1 && !b.dead); }
+  // Name of the building still needed before def can be made, or null.
+  missingReq(team, def) {
+    if (!def.requires || this.hasBuilt(team, def.requires)) return null;
+    return BUILDINGS[def.requires].name;
+  }
+  dmgMult(team) { return 1 + UPGRADE_DMG * this.teams[team].up.dmg; }
+  armorMult(team) { return 1 - UPGRADE_ARMOR * this.teams[team].up.armor; }
+  // Free expansion spots (no building on them yet).
+  freeExpansions() {
+    return (this.map.expansions || []).filter((e) => this.map.areaFree(e.tx, e.ty, 4, 4));
   }
   canHit(def, e) { return e.air ? !!def.hitsAir : def.hitsGround !== false; }
   msg(text, kind = 'info') { if (this.onMessage) this.onMessage(text, kind); }
@@ -119,7 +132,7 @@ class Game {
       target: null, cooldown: 0, carry: 0, res: null, facing: 1, anim: Math.random() * 10,
       lastHit: -99, hitFlash: 0, attackAnim: 0, nextScan: 0, amGoal: null, anchor: null,
       stuckT: 0, stuckN: 0, lastX: x, lastY: y, repathAt: 0, mineT: 0, born: this.time,
-      moving: false, paintDist: 0, dead: false,
+      moving: false, paintDist: 0, dead: false, orders: [], hold: false, site: null,
     };
     this.units.push(u);
     return u;
@@ -134,7 +147,7 @@ class Game {
       shield: built ? d.shield || 0 : 0, maxShield: d.shield || 0,
       built: built ? 1 : 0, queue: [], prog: 0, rally: null, cooldown: 0, target: null,
       nextScan: 0, lastHit: -99, hitFlash: 0, aim: 0, rect: [tx, ty, tx + s - 1, ty + s - 1],
-      dead: false, born: this.time,
+      dead: false, born: this.time, started: !!built, builder: null, reassignAt: 0,
     };
     this.map.occupy(tx, ty, s, s, 1);
     this.buildings.push(b);
@@ -228,7 +241,8 @@ class Game {
     return slots;
   }
 
-  cmdMove(units, x, y, attackMove) {
+  // queue = add to the end of each unit's order list (Shift in StarCraft mode).
+  cmdMove(units, x, y, attackMove, queue) {
     units = units.filter((u) => !u.dead);
     if (!units.length) return;
     const groups = [units.filter((u) => !u.air), units.filter((u) => u.air)];
@@ -243,22 +257,47 @@ class Game {
           if (dd < bd) { bd = dd; bi = i; }
         }
         const s = slots.splice(bi, 1)[0];
-        u.target = null; u.res = null; u.anchor = null;
-        const am = attackMove && !!u.def.dmg;
-        u.amGoal = am ? { x: s.x, y: s.y } : null;
-        u.state = 'move';
-        u.attackMove = am;
-        u.goal = { x: s.x, y: s.y };
-        this.setPath(u, u.goal);
+        const order = { kind: attackMove && u.def.dmg ? 'amove' : 'move', x: s.x, y: s.y };
+        if (queue && this.busy(u)) { u.orders.push(order); continue; }
+        u.orders = []; u.hold = false;
+        this.runOrder(u, order);
       }
     }
   }
 
-  cmdAttack(units, target) {
+  busy(u) { return u.state !== 'idle' || u.orders.length > 0; }
+
+  runOrder(u, o) {
+    u.res = null; u.anchor = null; u.site = null;
+    if (o.kind === 'attack') {
+      if (o.target.dead) { this.nextOrder(u); return; }
+      u.target = o.target; u.state = 'attack'; u.amGoal = null; u.path = null;
+      return;
+    }
+    u.target = null;
+    const am = o.kind === 'amove';
+    u.amGoal = am ? { x: o.x, y: o.y } : null;
+    u.state = 'move';
+    u.attackMove = am;
+    u.goal = { x: o.x, y: o.y };
+    this.setPath(u, u.goal);
+  }
+
+  // Current order finished: take the next queued one or stand still.
+  nextOrder(u) {
+    u.amGoal = null; u.attackMove = false; u.target = null; u.path = null;
+    if (u.orders.length) this.runOrder(u, u.orders.shift());
+    else u.state = 'idle';
+  }
+
+  cmdAttack(units, target, queue) {
     for (const u of units) {
       if (u.dead) continue;
-      if (!u.def.dmg || !this.canHit(u.def, target)) { this.cmdMove([u], target.x, target.y, true); continue; }
-      u.target = target; u.state = 'attack'; u.amGoal = null; u.anchor = null; u.path = null; u.res = null;
+      if (!u.def.dmg || !this.canHit(u.def, target)) { this.cmdMove([u], target.x, target.y, true, queue); continue; }
+      const order = { kind: 'attack', target };
+      if (queue && this.busy(u)) { u.orders.push(order); continue; }
+      u.orders = []; u.hold = false;
+      this.runOrder(u, order);
     }
   }
 
@@ -266,6 +305,7 @@ class Game {
     for (const u of units) {
       if (u.dead || !u.def.worker) continue;
       u.res = res; u.state = u.carry > 0 ? 'return' : 'gather'; u.path = null; u.target = null; u.mineT = 0;
+      u.orders = []; u.site = null;
     }
   }
 
@@ -274,7 +314,16 @@ class Game {
   }
 
   cmdStop(units) {
-    for (const u of units) { u.state = 'idle'; u.path = null; u.target = null; u.amGoal = null; u.anchor = null; u.res = null; }
+    for (const u of units) {
+      u.state = 'idle'; u.path = null; u.target = null; u.amGoal = null; u.anchor = null; u.res = null;
+      u.orders = []; u.hold = false; u.site = null;
+    }
+  }
+
+  // Hold position: shoot what comes in range, but never walk away.
+  cmdHold(units) {
+    this.cmdStop(units);
+    for (const u of units) if (u.def.dmg) u.hold = true;
   }
 
   gatherNearest(u) {
@@ -300,6 +349,8 @@ class Game {
     if (b.dead || b.built < 1) return 'Bygningen er ikke ferdig ennå.';
     if (!b.def.trains || !b.def.trains.includes(type)) return 'Kan ikke lage det her.';
     if (b.queue.length >= 5) return 'Køen er full.';
+    const need = this.missingReq(b.team, d);
+    if (need) return `Du må bygge ${need} først.`;
     if (t.crystals < d.cost) return 'Ikke nok krystaller!';
     if (this.unitCount(b.team) >= UNIT_CAP) return 'Du har for mange enheter!';
     t.crystals -= d.cost;
@@ -307,10 +358,38 @@ class Game {
     return null;
   }
 
+  // Research level the team would get next for key, or null if maxed/in progress.
+  researchState(team, key) {
+    const lvl = this.teams[team].up[key];
+    const busy = this.buildings.some((b) => b.team === team && !b.dead && b.queue.includes('up:' + key));
+    return { level: lvl, busy, max: lvl >= UPGRADE_MAX };
+  }
+
+  cmdResearch(b, key) {
+    const t = this.teams[b.team], up = UPGRADES[key];
+    if (b.dead || b.built < 1 || !b.def.research || !b.def.research.includes(key)) return 'Kan ikke forske på det her.';
+    const st = this.researchState(b.team, key);
+    if (st.max) return 'Det er allerede helt ferdig forsket!';
+    if (st.busy) return 'Det forskes allerede på dette.';
+    if (b.queue.length >= 5) return 'Køen er full.';
+    const cost = up.cost[st.level];
+    if (t.crystals < cost) return 'Ikke nok krystaller!';
+    t.crystals -= cost;
+    b.queue.push('up:' + key);
+    return null;
+  }
+
+  itemTime(b, item) {
+    if (item.startsWith('up:')) { const k = item.slice(3); return UPGRADES[k].time[this.teams[b.team].up[k]]; }
+    return UNITS[item].time;
+  }
+
   cancelTrain(b, idx) {
     if (idx < 0 || idx >= b.queue.length) return;
-    const type = b.queue.splice(idx, 1)[0];
-    this.teams[b.team].crystals += UNITS[type].cost;
+    const item = b.queue.splice(idx, 1)[0];
+    const t = this.teams[b.team];
+    if (item.startsWith('up:')) t.crystals += UPGRADES[item.slice(3)].cost[t.up[item.slice(3)]];
+    else t.crystals += UNITS[item].cost;
     if (idx === 0) b.prog = 0;
   }
 
@@ -319,8 +398,16 @@ class Game {
     if (tx < 0 || ty < 0 || tx + s > this.map.w || ty + s > this.map.h) return 'Utenfor kartet.';
     if (!this.map.areaFree(tx, ty, s, s)) return 'Det er ikke plass her.';
     const cx = (tx + s / 2) * TILE, cy = (ty + s / 2) * TILE;
+    const rect = [tx, ty, tx + s - 1, ty + s - 1];
+    // Keep a gap to the crystals so workers can reach them.
+    const gap = d.isBase ? 2.5 * TILE : 0.9 * TILE;
+    if (this.resources.some((r) => !r.dead && this.distToRect(r.x, r.y, rect) < gap)) {
+      return d.isBase ? 'Basen må stå litt lenger unna krystallene.' : 'Ikke bygg helt inntil krystallene.';
+    }
     const near = this.buildings.some((b) => !b.dead && b.team === team && dist(b.x, b.y, cx, cy) <= BUILD_RADIUS);
-    if (!near) return 'Du kan bare bygge nær dine egne bygninger.';
+    // A new base may also go next to any crystal field: that is how you expand.
+    const nearCrystal = d.isBase && this.resources.some((r) => !r.dead && dist(r.x, r.y, cx, cy) <= EXPAND_RADIUS);
+    if (!near && !nearCrystal) return d.isBase ? 'En ny base må stå ved krystaller eller nær dine bygninger.' : 'Du kan bare bygge nær dine egne bygninger.';
     for (const u of this.units) {
       if (u.dead || u.air || !this.isEnemy(team, u.team)) continue;
       if (u.x > tx * TILE && u.x < (tx + s) * TILE && u.y > ty * TILE && u.y < (ty + s) * TILE) return 'Fienden står i veien.';
@@ -328,18 +415,55 @@ class Game {
     return null;
   }
 
-  cmdBuild(team, type, tx, ty) {
+  // Places a foundation; a worker walks there and starts the construction.
+  // worker: the worker to send (optional, otherwise the nearest one goes).
+  cmdBuild(team, type, tx, ty, worker) {
     const t = this.teams[team], d = BUILDINGS[type];
     if (!t.f.builds.includes(type)) return 'Kan ikke bygge det.';
+    const need = this.missingReq(team, d);
+    if (need) return `Du må bygge ${need} først.`;
     if (t.crystals < d.cost) return 'Ikke nok krystaller!';
     const why = this.canPlace(team, type, tx, ty);
     if (why) return why;
+    const cx = (tx + d.size / 2) * TILE, cy = (ty + d.size / 2) * TILE;
+    const w = worker && !worker.dead && worker.def.worker ? worker : this.nearestWorker(team, cx, cy);
+    if (!w) return 'Du trenger en bygger!';
     t.crystals -= d.cost;
     const b = this.spawnBuilding(team, type, tx, ty, false);
-    this.burst(b.x, b.y, t.color.light, 14);
+    this.sendBuilder(w, b);
     if (team === this.player) this.sfx('build', b.x, b.y);
-    // A nearby worker pops over to say hello (purely cosmetic, it then goes back to work).
     return null;
+  }
+
+  nearestWorker(team, x, y) {
+    let best = null, bd = Infinity;
+    for (const u of this.units) {
+      if (u.dead || u.team !== team || !u.def.worker) continue;
+      // Prefer workers that are not already on their way to build something.
+      const dd = dist(u.x, u.y, x, y) + (u.state === 'build' ? 2000 : 0) + (u.carry > 0 ? 60 : 0);
+      if (dd < bd) { bd = dd; best = u; }
+    }
+    return best;
+  }
+
+  sendBuilder(w, b) {
+    w.state = 'build'; w.site = b; w.path = null; w.target = null; w.orders = []; w.res = null;
+    b.builder = w;
+  }
+
+  doBuild(u, dt) {
+    const b = u.site;
+    if (!b || b.dead || b.started) { u.site = null; if (u.carry > 0) { u.state = 'return'; u.path = null; } else this.gatherNearest(u); return; }
+    if (this.edgeDist(u, b) <= 16) {
+      b.started = true;
+      this.burst(b.x, b.y, this.teams[b.team].color.light, 14);
+      u.site = null;
+      u.path = null;
+      if (u.carry > 0) u.state = 'return'; else this.gatherNearest(u);
+      return;
+    }
+    if (!u.path) this.setPath(u, { rect: b.rect });
+    if (this.followPath(u, dt) && this.edgeDist(u, b) > 16) u.path = null;
   }
 
   setRally(b, x, y, res) {
@@ -376,7 +500,7 @@ class Game {
       e.hp = Math.min(e.maxHp, e.hp + 6 * dt);
     }
     if (e.maxShield > 0 && quiet > 4 && e.shield < e.maxShield && (e.kind === 'unit' || e.built >= 1)) {
-      e.shield = Math.min(e.maxShield, e.shield + (e.kind === 'unit' ? 8 : 16) * dt);
+      e.shield = Math.min(e.maxShield, e.shield + (e.kind === 'unit' ? 12 : 16) * dt);
     }
   }
 
@@ -393,11 +517,12 @@ class Game {
       case 'idle': {
         if (d.dmg && this.time >= u.nextScan) {
           u.nextScan = this.time + 0.3 + Math.random() * 0.1;
-          const t = this.findTarget(u, d.sight);
+          const t = this.findTarget(u, u.hold ? d.range + u.radius : d.sight);
           if (t) { u.target = t; u.state = 'attack'; u.anchor = { x: u.x, y: u.y }; u.path = null; }
         }
         break;
       }
+      case 'build': this.doBuild(u, dt); break;
       case 'move': {
         if (u.attackMove && this.time >= u.nextScan) {
           u.nextScan = this.time + 0.3 + Math.random() * 0.1;
@@ -409,7 +534,8 @@ class Game {
             this.setPath(u, u.goal); // path was cut short; try again
             u.pathGaveUp = true;
           } else {
-            u.state = 'idle'; u.amGoal = null; u.attackMove = false; u.pathGaveUp = false;
+            u.pathGaveUp = false;
+            this.nextOrder(u);
           }
         }
         break;
@@ -531,13 +657,13 @@ class Game {
       const nt = this.findTarget(u, d.sight);
       if (nt && (u.amGoal || u.anchor)) { u.target = nt; return; }
       if (u.amGoal) { u.state = 'move'; u.attackMove = true; u.goal = u.amGoal; this.setPath(u, u.amGoal); }
-      else if (u.anchor && dist(u.x, u.y, u.anchor.x, u.anchor.y) > 40) {
+      else if (u.anchor && !u.hold && dist(u.x, u.y, u.anchor.x, u.anchor.y) > 40) {
         const a = u.anchor; u.anchor = null; u.state = 'move'; u.attackMove = false; u.goal = a; this.setPath(u, a);
-      } else { u.state = 'idle'; u.anchor = null; }
-      u.path = u.state === 'idle' ? null : u.path;
+      } else { u.anchor = null; this.nextOrder(u); }
       return;
     }
     const inRange = this.edgeDist(u, t) <= d.range;
+    if (!inRange && u.hold) { u.target = null; u.state = 'idle'; u.path = null; return; }
     if (inRange) {
       u.path = null;
       if (Math.abs(t.x - u.x) > 1) u.facing = t.x < u.x ? -1 : 1;
@@ -565,21 +691,30 @@ class Game {
     const team = this.teams[src.team];
     const sx = src.x, sy = src.y, sz = this.muzzleH(src), tz = this.hitH(t);
     if (src.kind === 'building') src.aim = Math.atan2(t.y - sy, t.x - sx);
+    const dmg = d.dmg * (src.kind === 'unit' ? this.dmgMult(src.team) : 1);
     if (d.attack === 'melee') {
-      this.damage(t, d.dmg, src);
+      this.damage(t, dmg, src);
+      if (d.splash) {
+        // Big melee units hit everything around their target.
+        for (const e of this.units) {
+          if (e === t || e.dead || e.air || !this.isEnemy(src.team, e.team)) continue;
+          if (dist(t.x, t.y, e.x, e.y) - e.radius <= d.splash) this.damage(e, dmg * 0.5, src);
+        }
+        this.paint.splat(t.x, t.y, d.splash * 0.7, src.team, team.color.main);
+      }
       const hx = lerp(src.x, t.x, 0.6), hy = lerp(src.y, t.y, 0.6);
       this.paint.splat(t.x + (Math.random() - 0.5) * 10, t.y + (Math.random() - 0.5) * 10, 7, src.team, team.color.main);
       this.burst(hx, hy, team.color.main, 3, tz);
       this.sfx('bonk', src.x, src.y);
     } else if (d.attack === 'beam') {
-      this.damage(t, d.dmg, src);
+      this.damage(t, dmg, src);
       this.effects.push({ type: 'beam', x: sx, y: sy, z: sz, x2: t.x, y2: t.y, z2: tz, color: team.color.main, t: 0, life: 0.18 });
       if (Math.random() < 0.35) this.paint.splat(t.x, t.y, 8, src.team, team.color.main);
       this.sfx('beam', src.x, src.y);
     } else {
       this.projectiles.push({
         x: sx, y: sy, z: sz, sx, sy, sz, target: t, tx: t.x, ty: t.y, tz, total: Math.max(1, dist(sx, sy, t.x, t.y)), team: src.team, src,
-        dmg: d.dmg, splash: d.splash || 0, color: team.color.main, speed: d.projSpeed || 340,
+        dmg, splash: d.splash || 0, color: team.color.main, speed: d.projSpeed || 340,
         size: d.splash ? 7 : 4.5, hitsAir: d.hitsAir, hitsGround: d.hitsGround !== false, t: 0,
       });
       this.sfx(d.splash ? 'boom' : 'pew', src.x, src.y);
@@ -631,6 +766,7 @@ class Game {
   damage(t, amt, src, srcTeam) {
     if (t.dead) return;
     t.lastHit = this.time;
+    if (t.kind === 'unit') amt *= this.armorMult(t.team);
     if (t.shield > 0) { const a = Math.min(t.shield, amt); t.shield -= a; amt -= a; }
     t.hp -= amt;
     t.hitFlash = 0.12;
@@ -643,7 +779,7 @@ class Game {
     }
     if (t.hp <= 0) { this.kill(t, team); return; }
     // Fight back if we were just standing around.
-    if (t.kind === 'unit' && src && !src.dead && t.def.dmg && t.state === 'idle' && this.canHit(t.def, src)) {
+    if (t.kind === 'unit' && src && !src.dead && t.def.dmg && t.state === 'idle' && this.canHit(t.def, src) && (!t.hold || this.edgeDist(t, src) <= t.def.range)) {
       t.target = src; t.state = 'attack'; t.anchor = { x: t.x, y: t.y };
     }
     if (t.kind === 'unit' && t.team !== this.player && t.def.worker && src && t.team >= 0 && this.teams[t.team].ai) {
@@ -737,6 +873,16 @@ class Game {
   updateBuilding(b, dt) {
     const d = b.def;
     if (b.hitFlash > 0) b.hitFlash -= dt;
+    if (!b.started) {
+      // Waiting for a worker. If ours got lost, send another one.
+      const w = b.builder;
+      if ((!w || w.dead || w.site !== b) && this.time >= b.reassignAt) {
+        b.reassignAt = this.time + 1;
+        const nw = this.nearestWorker(b.team, b.x, b.y);
+        if (nw) this.sendBuilder(nw, b);
+      }
+      return;
+    }
     if (b.built < 1) {
       const inc = dt / d.time;
       b.built = Math.min(1, b.built + inc);
@@ -750,12 +896,20 @@ class Game {
     }
     this.traitRegen(b, dt);
     if (b.queue.length) {
-      const type = b.queue[0];
+      const item = b.queue[0];
       b.prog += dt;
-      if (b.prog >= UNITS[type].time) {
-        const u = this.spawnFrom(b, type);
-        if (u) { b.queue.shift(); b.prog = 0; }
-        else b.prog = UNITS[type].time; // no room yet, try again next tick
+      const need = this.itemTime(b, item);
+      if (b.prog >= need) {
+        if (item.startsWith('up:')) {
+          const key = item.slice(3), T = this.teams[b.team];
+          T.up[key]++;
+          b.queue.shift(); b.prog = 0;
+          if (b.team === this.player) { this.msg(`Ferdig forsket: ${UPGRADES[key].name[T.faction]} ${T.up[key]}!`, 'good'); this.sfx('done'); }
+        } else {
+          const u = this.spawnFrom(b, item);
+          if (u) { b.queue.shift(); b.prog = 0; }
+          else b.prog = need; // no room yet, try again next tick
+        }
       }
     }
     if (d.dmg) {

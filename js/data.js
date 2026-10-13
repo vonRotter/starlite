@@ -20,7 +20,7 @@ const FACTIONS = {
     desc: 'Modige romfarere med malingsblastere.',
     trait: 'Bygningene reparerer seg selv.',
     base: 'stjernestasjon', worker: 'byggebot',
-    builds: ['kaserne', 'verksted', 'vakttarn', 'stjernestasjon'],
+    builds: ['kaserne', 'verksted', 'vakttarn', 'stjernestasjon', 'fargelab'],
     leader: 'stella',
   },
   summ: {
@@ -28,7 +28,7 @@ const FACTIONS = {
     desc: 'Raske, summende småkryp som er mange sammen.',
     trait: 'Blir friske av seg selv.',
     base: 'bikube', worker: 'sankelarve',
-    builds: ['klekkeri', 'vingereir', 'piggsopp', 'bikube'],
+    builds: ['klekkeri', 'vingereir', 'piggsopp', 'bikube', 'kongekammer'],
     leader: 'summa',
   },
   krystall: {
@@ -36,7 +36,7 @@ const FACTIONS = {
     desc: 'Sterke, glitrende vesener laget av lys.',
     trait: 'Skjoldene lader seg opp igjen.',
     base: 'krystallhjerte', worker: 'svevesonde',
-    builds: ['portal', 'stjerneport', 'lystarn', 'krystallhjerte'],
+    builds: ['portal', 'stjerneport', 'lystarn', 'krystallhjerte', 'lysakademi'],
     leader: 'lumi',
   },
   graa: {
@@ -44,7 +44,7 @@ const FACTIONS = {
     desc: 'En grinete, grå sky og hjelperne hennes.',
     trait: 'Grå og grinete.',
     base: 'skyslottet', worker: 'stovsuger',
-    builds: ['taakefabrikk', 'skyverksted', 'graataarn', 'skyslottet'],
+    builds: ['taakefabrikk', 'skyverksted', 'graataarn', 'skyslottet', 'taakelab'],
     leader: 'skodda',
   },
 };
@@ -53,6 +53,7 @@ const FACTIONS = {
 //  hp, shield, speed (px/s), radius (px), cost, time (s), sight (px)
 //  dmg, cd (cooldown s), range (px, edge to edge), hitsAir, hitsGround (default true)
 //  attack: 'blob' (paint projectile), 'melee', 'beam'; splash (px)
+//  requires: building type that must be finished before this can be made
 const UNITS = {
   // --- Stjernevennene ---
   byggebot: {
@@ -62,8 +63,8 @@ const UNITS = {
   },
   malersoldat: {
     faction: 'stjerne', name: 'Malersoldat',
-    desc: 'Skyter malingsklatter. Kan treffe flyvere.', cost: 50, time: 10,
-    hp: 58, speed: 68, radius: 11, sight: 240,
+    desc: 'Skyter malingsklatter. Kan treffe flyvere.', cost: 50, time: 11,
+    hp: 54, speed: 68, radius: 11, sight: 240,
     dmg: 7, cd: 0.66, range: 120, hitsAir: true, attack: 'blob', projSpeed: 380,
   },
   rullebil: {
@@ -77,6 +78,12 @@ const UNITS = {
     desc: 'Flyr over alt. Skyter både opp og ned.', cost: 125, time: 15,
     hp: 110, speed: 82, radius: 16, sight: 260,
     dmg: 9, cd: 0.9, range: 130, hitsAir: true, attack: 'blob', projSpeed: 340,
+  },
+  malerrobot: {
+    faction: 'stjerne', name: 'Malerrobot', heavy: true, requires: 'fargelab',
+    desc: 'Kjempestor robot med to malingskanoner. Treffer alt.', cost: 300, time: 28,
+    hp: 430, speed: 44, radius: 19, sight: 290,
+    dmg: 15, cd: 1.1, range: 160, hitsAir: true, attack: 'blob', splash: 30, projSpeed: 330,
   },
   // --- Summerne ---
   sankelarve: {
@@ -102,6 +109,12 @@ const UNITS = {
     hp: 95, speed: 110, radius: 14, sight: 250,
     dmg: 8, cd: 0.8, range: 110, hitsAir: true, attack: 'blob', projSpeed: 360,
   },
+  kjempebille: {
+    faction: 'summ', name: 'Kjempebille', heavy: true, requires: 'kongekammer',
+    desc: 'Diger bille med store horn. Slår mange på en gang.', cost: 275, time: 26,
+    hp: 480, speed: 72, radius: 19, sight: 250,
+    dmg: 22, cd: 1.1, range: 10, hitsAir: false, attack: 'melee', splash: 32,
+  },
   // --- Krystallvokterne ---
   svevesonde: {
     faction: 'krystall', name: 'Svevesonde', worker: true,
@@ -110,13 +123,13 @@ const UNITS = {
   },
   lysvokter: {
     faction: 'krystall', name: 'Lysvokter',
-    desc: 'Sterk kriger med lyssverd. Kjemper på nært hold.', cost: 100, time: 14,
+    desc: 'Sterk kriger med lyssverd. Kjemper på nært hold.', cost: 90, time: 13,
     hp: 80, shield: 60, speed: 72, radius: 12, sight: 230,
     dmg: 15, cd: 1.0, range: 8, hitsAir: false, attack: 'melee',
   },
   glimtskytter: {
     faction: 'krystall', name: 'Glimtskytter',
-    desc: 'Skyter langt. Kan treffe flyvere.', cost: 125, time: 15,
+    desc: 'Skyter langt. Kan treffe flyvere.', cost: 115, time: 14,
     hp: 80, shield: 60, speed: 70, radius: 14, sight: 270,
     dmg: 13, cd: 1.1, range: 170, hitsAir: true, attack: 'blob', projSpeed: 420,
   },
@@ -125,6 +138,12 @@ const UNITS = {
     desc: 'Stort lysskip med fargestråle.', cost: 200, time: 20,
     hp: 120, shield: 100, speed: 62, radius: 18, sight: 260,
     dmg: 5, cd: 0.33, range: 140, hitsAir: true, attack: 'beam',
+  },
+  lyskjempe: {
+    faction: 'krystall', name: 'Lyskjempe', heavy: true, requires: 'lysakademi',
+    desc: 'Svevende kjempe av rent lys. Treffer alt rundt seg.', cost: 275, time: 26,
+    hp: 160, shield: 300, speed: 60, radius: 19, sight: 260,
+    dmg: 18, cd: 1.1, range: 110, hitsAir: true, attack: 'blob', splash: 30, projSpeed: 480,
   },
   // --- Gråskodda ---
   stovsuger: {
@@ -150,10 +169,16 @@ const UNITS = {
     hp: 110, speed: 70, radius: 16, sight: 240,
     dmg: 10, cd: 1.0, range: 120, hitsAir: true, attack: 'blob', splash: 22, projSpeed: 300,
   },
+  tordensky: {
+    faction: 'graa', name: 'Tordensky', air: true, heavy: true, requires: 'taakelab',
+    desc: 'Svær, sint tordensky som slipper store grå bomber.', cost: 300, time: 28,
+    hp: 330, speed: 48, radius: 22, sight: 260,
+    dmg: 22, cd: 1.6, range: 120, hitsAir: false, attack: 'blob', splash: 38, projSpeed: 260,
+  },
 };
 
 // Building fields: size (tiles, square), hp, shield, cost, time, trains[], isBase,
-// tower attack fields like units (dmg, cd, range, hitsAir).
+// tower attack fields like units (dmg, cd, range, hitsAir), requires, research[].
 const BUILDINGS = {
   // --- Stjernevennene ---
   stjernestasjon: {
@@ -167,12 +192,16 @@ const BUILDINGS = {
   },
   verksted: {
     faction: 'stjerne', name: 'Verksted',
-    desc: 'Bygger rullebiler og ballongflyere.', size: 3, hp: 900, cost: 200, time: 24, trains: ['rullebil', 'ballongflyer'],
+    desc: 'Bygger rullebiler, ballongflyere og malerroboter.', size: 3, hp: 900, cost: 200, time: 24, trains: ['rullebil', 'ballongflyer', 'malerrobot'],
   },
   vakttarn: {
     faction: 'stjerne', name: 'Vakttårn',
     desc: 'Passer på basen og skyter maling.', size: 2, hp: 420, cost: 100, time: 15,
     dmg: 10, cd: 0.9, range: 200, hitsAir: true, attack: 'blob', projSpeed: 400,
+  },
+  fargelab: {
+    faction: 'stjerne', name: 'Fargelab', requires: 'kaserne', research: ['dmg', 'armor'],
+    desc: 'Forsker fram sterkere maling og drakter. Gir Malerrobot.', size: 3, hp: 750, cost: 150, time: 25,
   },
   // --- Summerne ---
   bikube: {
@@ -182,7 +211,7 @@ const BUILDINGS = {
   },
   klekkeri: {
     faction: 'summ', name: 'Klekkeri',
-    desc: 'Klekker sprettbiller og spyttsnegler.', size: 3, hp: 750, cost: 150, time: 20, trains: ['sprettbille', 'spyttsnegl'],
+    desc: 'Klekker sprettbiller, spyttsnegler og kjempebiller.', size: 3, hp: 750, cost: 150, time: 20, trains: ['sprettbille', 'spyttsnegl', 'kjempebille'],
   },
   vingereir: {
     faction: 'summ', name: 'Vingereir',
@@ -193,6 +222,10 @@ const BUILDINGS = {
     desc: 'Sopp som skyter malingssporer.', size: 2, hp: 450, cost: 100, time: 15,
     dmg: 11, cd: 1.0, range: 190, hitsAir: true, attack: 'blob', projSpeed: 360,
   },
+  kongekammer: {
+    faction: 'summ', name: 'Kongekammer', requires: 'klekkeri', research: ['dmg', 'armor'],
+    desc: 'Dronningens kammer. Gir hardere skall og Kjempebille.', size: 3, hp: 750, cost: 150, time: 25,
+  },
   // --- Krystallvokterne ---
   krystallhjerte: {
     faction: 'krystall', name: 'Krystallhjerte', isBase: true,
@@ -201,7 +234,7 @@ const BUILDINGS = {
   },
   portal: {
     faction: 'krystall', name: 'Lysportal',
-    desc: 'Henter lysvoktere og glimtskyttere.', size: 3, hp: 500, shield: 300, cost: 150, time: 20, trains: ['lysvokter', 'glimtskytter'],
+    desc: 'Henter lysvoktere, glimtskyttere og lyskjemper.', size: 3, hp: 500, shield: 300, cost: 150, time: 20, trains: ['lysvokter', 'glimtskytter', 'lyskjempe'],
   },
   stjerneport: {
     faction: 'krystall', name: 'Stjerneport',
@@ -211,6 +244,10 @@ const BUILDINGS = {
     faction: 'krystall', name: 'Lystårn',
     desc: 'Tårn som skyter lyskuler.', size: 2, hp: 260, shield: 200, cost: 100, time: 15,
     dmg: 12, cd: 0.9, range: 200, hitsAir: true, attack: 'blob', projSpeed: 420,
+  },
+  lysakademi: {
+    faction: 'krystall', name: 'Lysakademi', requires: 'portal', research: ['dmg', 'armor'],
+    desc: 'Her lærer vokterne å lyse sterkere. Gir Lyskjempe.', size: 3, hp: 450, shield: 300, cost: 150, time: 25,
   },
   // --- Gråskodda ---
   skyslottet: {
@@ -224,14 +261,33 @@ const BUILDINGS = {
   },
   skyverksted: {
     faction: 'graa', name: 'Skyverksted',
-    desc: 'Lager tåkeskyer.', size: 3, hp: 850, cost: 200, time: 24, trains: ['taakesky'],
+    desc: 'Lager tåkeskyer og tordenskyer.', size: 3, hp: 850, cost: 200, time: 24, trains: ['taakesky', 'tordensky'],
   },
   graataarn: {
     faction: 'graa', name: 'Grått tårn',
     desc: 'Et surt tårn som skyter grå maling.', size: 2, hp: 450, cost: 100, time: 15,
     dmg: 10, cd: 0.9, range: 200, hitsAir: true, attack: 'blob', projSpeed: 380,
   },
+  taakelab: {
+    faction: 'graa', name: 'Tåkelab', requires: 'taakefabrikk', research: ['dmg', 'armor'],
+    desc: 'Et boblende laboratorium. Gir Tordensky.', size: 3, hp: 800, cost: 150, time: 25,
+  },
 };
+
+// Research in the tech buildings. Three levels each; the cost and time are per level.
+const UPGRADES = {
+  dmg: {
+    name: { stjerne: 'Sterkere maling', summ: 'Skarpere spytt', krystall: 'Klarere lys', graa: 'Gråere maling' },
+    desc: 'Alle enhetene dine treffer hardere.', cost: [100, 175, 250], time: [30, 40, 50],
+  },
+  armor: {
+    name: { stjerne: 'Tykkere drakter', summ: 'Hardere skall', krystall: 'Sterkere krystaller', graa: 'Tettere støv' },
+    desc: 'Alle enhetene dine tåler mer.', cost: [100, 175, 250], time: [30, 40, 50],
+  },
+};
+const UPGRADE_MAX = 3;
+const UPGRADE_DMG = 0.12;   // +12 % damage per level
+const UPGRADE_ARMOR = 0.08; // -8 % damage taken per level
 
 for (const [k, d] of Object.entries(UNITS)) { d.key = k; d.kind = 'unit'; }
 for (const [k, d] of Object.entries(BUILDINGS)) { d.key = k; d.kind = 'building'; }
@@ -244,9 +300,10 @@ const DIFFICULTIES = {
   vanskelig: { name: 'Vanskelig', desc: 'For superkapteiner!', income: 1.25, firstAttack: 120, wave: 9, waveGrow: 3, workers: 14, think: 0.7 },
 };
 
-const UNIT_CAP = 50;
+const UNIT_CAP = 60;
 const AIR_H = 46; // flying height of air units (world units)
 const CARRY = 5;
 const MINE_TIME = 1.4;
 const CRYSTAL_AMOUNT = 1200;
 const BUILD_RADIUS = 11 * TILE; // building must be this close to your own buildings
+const EXPAND_RADIUS = 9 * TILE; // a new base may also be placed this close to any crystal

@@ -95,7 +95,9 @@ class HUD {
     }).join('|');
     const afford = [100, 50, 30, 80, 110, 125, 150, 200, 400].map((c) => (T.crystals >= c ? 1 : 0)).join('');
     const mode = this.input.mode ? this.input.mode.type + (this.input.mode.what || '') : '';
-    return sel + '#' + afford + '#' + mode;
+    const tech = T.f.builds.map((b) => (g.hasBuilt(g.player, b) ? 1 : 0)).join('') + T.up.dmg + T.up.armor;
+    const st = g.selection.map((e) => (e.kind === 'unit' ? e.state + (e.hold ? 'h' : '') : e.started ? 's' : 'f')).join('');
+    return sel + '#' + afford + '#' + mode + '#' + tech + '#' + st + '#' + (this.input.sc ? 1 : 0);
   }
 
   renderSelection() {
@@ -120,13 +122,21 @@ class HUD {
         if (e.team !== P) extra += `<p><b>${team.name}</b> ${P >= 0 && g.isEnemy(P, e.team) ? '(fiende)' : '(venn)'}</p>`;
         extra += `<div class="hpbar"><div style="width:${clamp(e.hp / e.maxHp, 0, 1) * 100}%"></div></div>`;
         if (e.maxShield) extra += `<div class="hpbar shield"><div style="width:${clamp(e.shield / e.maxShield, 0, 1) * 100}%"></div></div>`;
-        if (e.kind === 'building' && e.built < 1) extra += `<p>Bygges … ${Math.floor(e.built * 100)} %</p>`;
+        if (e.kind === 'building' && !e.started) extra += '<p>Venter på at en bygger kommer.</p>';
+        else if (e.kind === 'building' && e.built < 1) extra += `<p>Bygges … ${Math.floor(e.built * 100)} %</p>`;
         if (e.kind === 'unit' && e.def.worker && e.team === P) {
-          const st = { gather: 'Samler krystaller', return: 'Bærer krystaller hjem', move: 'Går', idle: 'Venter' }[e.state] || '';
+          const st = { gather: 'Samler krystaller', return: 'Bærer krystaller hjem', move: 'Går', idle: 'Venter', build: 'Går for å bygge' }[e.state] || '';
           if (st) extra += `<p>${st}</p>`;
         }
+        if (e.kind === 'unit' && e.def.dmg && e.team === P) {
+          const T = g.teams[P], up = [];
+          if (T.up.dmg) up.push(`${UPGRADES.dmg.name[T.faction]} ${T.up.dmg}`);
+          if (T.up.armor) up.push(`${UPGRADES.armor.name[T.faction]} ${T.up.armor}`);
+          if (e.hold) up.push('Holder posisjon');
+          if (up.length) extra += `<p><b>${up.join(' · ')}</b></p>`;
+        }
         if (e.kind === 'building' && e.queue.length && e.team === P) {
-          extra += '<div class="queue">' + e.queue.map((q, i) => `<img data-q="${i}" title="Klikk for å avbryte" src="${Art.icon('unit', q, team.colorKey, 48)}">`).join('') + '</div>';
+          extra += '<div class="queue">' + e.queue.map((q, i) => `<img data-q="${i}" title="Klikk for å avbryte" src="${this.queueIcon(q, team)}">`).join('') + '</div>';
         }
       }
       el.innerHTML = `<img class="big-icon" src="${iconUrl}"><div class="info"><h3>${name}</h3><p>${desc}</p>${extra}</div>`;
@@ -142,32 +152,68 @@ class HUD {
     }));
   }
 
+  // Icon for an item in a building queue (unit or research).
+  queueIcon(item, team) {
+    if (item.startsWith('up:')) return this.upgradeIcon(item.slice(3), team.colorKey);
+    return Art.icon('unit', item, team.colorKey, 48);
+  }
+
+  upgradeIcon(key, colorKey) {
+    const ck = 'up' + key + colorKey;
+    this._upIcons = this._upIcons || {};
+    if (this._upIcons[ck]) return this._upIcons[ck];
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const ctx = c.getContext('2d'), col = COLORS[colorKey] || COLORS.orange;
+    ctx.translate(32, 34);
+    if (key === 'dmg') {
+      // a paint drop
+      ctx.beginPath(); ctx.moveTo(0, -24); ctx.bezierCurveTo(18, -2, 18, 20, 0, 20); ctx.bezierCurveTo(-18, 20, -18, -2, 0, -24); ctx.closePath();
+      ctx.fillStyle = col.main; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = OUTLINE; ctx.stroke();
+      Art.circ(ctx, -5, 4, 5, 'rgba(255,255,255,0.6)', null);
+    } else {
+      // a shield
+      Art.poly(ctx, [0, -24, 20, -16, 18, 4, 0, 22, -18, 4, -20, -16], col.main, OUTLINE, 3);
+      Art.poly(ctx, [0, -16, 12, -11, 11, 2, 0, 14], col.light, null);
+    }
+    return (this._upIcons[ck] = c.toDataURL());
+  }
+
   renderCommands() {
     const g = this.game, inp = this.input, P = g.player, T = g.teams[P];
     const own = g.selection.filter((e) => e.team === P);
     const list = [];
+    const sc = inp.sc;
     const buildBtn = (type) => {
-      const d = BUILDINGS[type];
-      list.push({ icon: Art.icon('building', type, T.colorKey, 64), label: d.name, cost: d.cost, title: d.desc, poor: T.crystals < d.cost,
-        active: inp.mode && inp.mode.what === type, fn: () => inp.startBuild(type) });
+      const d = BUILDINGS[type], need = g.missingReq(P, d);
+      list.push({ icon: Art.icon('building', type, T.colorKey, 64), label: d.name, cost: d.cost, poor: T.crystals < d.cost,
+        title: need ? `Trenger ${need}` : d.desc, locked: need,
+        active: inp.mode && inp.mode.what === type,
+        fn: () => { if (need) { this.toast(`Du må bygge ${need} først.`, 'alert'); Sound.play('error'); return; } inp.startBuild(type); } });
     };
-    if (inp.mode && inp.mode.type !== 'move') {
+    if (inp.mode && inp.mode.type !== 'move' && inp.mode.type !== 'attack') {
       const txt = inp.mode.type === 'build' ? 'Avbryt bygging' : 'Avbryt';
-      list.push({ text: txt, fn: () => { inp.mode = null; this.dirty = true; } });
+      list.push({ text: txt, key: 'Esc', fn: () => inp.setMode(null) });
       if (inp.mode.type === 'rally') this.toastOnce('Klikk der nye enheter skal samles.');
     } else if (own.length && own[0].kind === 'unit') {
       if (own.some((u) => u.def.worker)) for (const type of T.f.builds) buildBtn(type);
-      if (own.some((u) => !u.def.worker)) {
-        list.push({ text: 'Løp hit', title: 'Gå uten å stoppe for å slåss', active: inp.mode && inp.mode.type === 'move',
-          fn: () => { inp.mode = inp.mode && inp.mode.type === 'move' ? null : { type: 'move' }; this.dirty = true; } });
+      if (own.some((u) => u.def.dmg)) {
+        if (sc) {
+          list.push({ text: 'Angrip', key: 'Q', title: 'Gå og slåss med alt på veien (Q, så klikk)', active: inp.mode && inp.mode.type === 'attack',
+            fn: () => inp.setMode(inp.mode && inp.mode.type === 'attack' ? null : { type: 'attack' }) });
+          list.push({ text: 'Hold', key: 'H', title: 'Stå stille og skyt det som kommer nær (H)', fn: () => { g.cmdHold(inp.ownSelectedUnits()); this.dirty = true; } });
+        } else {
+          list.push({ text: 'Løp hit', title: 'Gå uten å stoppe for å slåss', active: inp.mode && inp.mode.type === 'move',
+            fn: () => inp.setMode(inp.mode && inp.mode.type === 'move' ? null : { type: 'move' }) });
+        }
       }
-      list.push({ text: 'Stopp', fn: () => g.cmdStop(inp.ownSelectedUnits()) });
+      list.push({ text: 'Stopp', key: sc ? 'X' : null, fn: () => { g.cmdStop(inp.ownSelectedUnits()); this.dirty = true; } });
     } else if (own.length && own[0].kind === 'building') {
       const b = own[0];
       if (b.built >= 1 && b.def.trains) {
         for (const type of b.def.trains) {
-          const d = UNITS[type];
-          list.push({ icon: Art.icon('unit', type, T.colorKey, 64), label: d.name, cost: d.cost, title: d.desc, poor: T.crystals < d.cost,
+          const d = UNITS[type], need = g.missingReq(P, d);
+          list.push({ icon: Art.icon('unit', type, T.colorKey, 64), label: d.name, cost: d.cost, poor: T.crystals < d.cost,
+            title: need ? `Trenger ${need}` : d.desc, locked: need,
             fn: () => {
               const err = g.cmdTrain(b, type);
               if (err) { this.toast(err, 'alert'); Sound.play('error'); } else Sound.play('click');
@@ -175,21 +221,48 @@ class HUD {
             } });
         }
       }
-      if (b.def.isBase && b.built >= 1) for (const type of T.f.builds) if (type !== b.type) buildBtn(type);
-      if (b.def.trains && b.built >= 1) list.push({ text: 'Samlings­punkt', title: 'Hvor nye enheter skal gå', fn: () => { inp.mode = { type: 'rally' }; this.dirty = true; } });
+      if (b.built >= 1 && b.def.research) {
+        for (const key of b.def.research) {
+          const st = g.researchState(P, key), up = UPGRADES[key];
+          const lvl = Math.min(st.level + 1, UPGRADE_MAX);
+          list.push({ icon: this.upgradeIcon(key, T.colorKey), label: `${up.name[T.faction]} ${lvl}`,
+            cost: st.max ? '✓' : up.cost[st.level], poor: !st.max && T.crystals < up.cost[st.level],
+            title: st.max ? 'Ferdig forsket!' : st.busy ? 'Forskes nå …' : up.desc, locked: st.max ? 'Ferdig' : st.busy ? 'Forskes' : null,
+            fn: () => {
+              const err = g.cmdResearch(b, key);
+              if (err) { this.toast(err, 'alert'); Sound.play('error'); } else Sound.play('click');
+              this.dirty = true;
+            } });
+        }
+      }
+      if (b.def.isBase && b.built >= 1) for (const type of T.f.builds) buildBtn(type);
+      if (b.def.trains && b.built >= 1) list.push({ text: 'Samlings­punkt', title: 'Hvor nye enheter skal gå (eller høyreklikk)', fn: () => inp.setMode({ type: 'rally' }) });
     }
-    list.push({ text: 'Alle soldater', title: 'Velg alle soldatene dine (A)', fn: () => inp.selectArmy() });
+    list.push({ text: 'Alle soldater', key: sc ? 'F2' : null, title: 'Velg alle soldatene dine (F2)', fn: () => inp.selectArmy() });
     if (!own.length) {
-      list.push({ text: 'Til basen', title: 'Vis basen (mellomrom)', fn: () => inp.jumpHome() });
-      list.push({ text: 'Alle byggere', title: 'Velg alle byggerne (B)', fn: () => inp.selectWorkers() });
+      list.push({ text: 'Til basen', key: sc ? '␣' : null, title: 'Vis basen (mellomrom)', fn: () => inp.jumpHome() });
+      list.push({ text: 'Ledig bygger', key: sc ? 'F1' : null, title: 'Finn en bygger som ikke gjør noe (F1)', fn: () => inp.selectIdleWorker() });
     }
+
+    // Hotkeys: numbers in simple mode, letters (like StarCraft) in StarCraft mode.
+    if (sc) {
+      const used = new Set(RESERVED_KEYS);
+      for (const c of list) if (c.key && c.key.length === 1) used.add(c.key);
+      for (const c of list) {
+        if (c.key) continue;
+        const name = (c.label || c.text || '').toUpperCase().replace(/[^A-Z]/g, '');
+        const pick = [...name].find((ch) => !used.has(ch)) || [...'ZCVBNMRTYUIOFGJKLE'].find((ch) => !used.has(ch));
+        if (pick) { c.key = pick; used.add(pick); }
+      }
+    } else list.forEach((c, i) => { c.key = i < 9 ? String(i + 1) : null; });
 
     this.cmdList = list;
     const html = list.map((c, i) => {
-      const cls = ['cmd', c.text ? 'text' : '', c.poor ? 'poor' : '', c.active ? 'active' : ''].join(' ');
-      const key = i < 9 ? `<span class="key">${i + 1}</span>` : '';
+      const cls = ['cmd', c.text ? 'text' : '', c.poor ? 'poor' : '', c.active ? 'active' : '', c.locked ? 'locked' : ''].join(' ');
+      const key = c.key ? `<span class="key">${c.key}</span>` : '';
+      const lock = c.locked ? `<span class="lock">${c.locked === "Ferdig" || c.locked === "Forskes" ? c.locked : "Trenger " + c.locked}</span>` : '';
       if (c.text) return `<button class="${cls}" data-c="${i}" title="${c.title || ''}">${key}${c.text}</button>`;
-      return `<button class="${cls}" data-c="${i}" title="${c.title || ''}">${key}<span class="cost">${c.cost}</span><img src="${c.icon}" alt="">${c.label}</button>`;
+      return `<button class="${cls}" data-c="${i}" title="${c.title || ''}">${key}<span class="cost">${c.cost}</span><img src="${c.icon}" alt="">${c.label}${lock}</button>`;
     }).join('');
     this.el.cmds.innerHTML = html;
     this.el.cmds.querySelectorAll('[data-c]').forEach((btn) => btn.addEventListener('click', (e) => {
@@ -208,6 +281,11 @@ class HUD {
 
   hotkey(i) {
     const c = this.cmdList[i];
+    if (c) c.fn();
+  }
+
+  hotkeyLetter(letter) {
+    const c = this.cmdList.find((x) => x.key === letter);
     if (c) c.fn();
   }
 }
