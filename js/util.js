@@ -82,12 +82,18 @@ class MinHeap {
   }
 }
 
+// Campaign progress and skirmish setup are kept per Couch Party Island profile when the game is
+// opened from the island's solo mode (see couch.js); sound and controls stay shared.
+const PROFILE_KEYS = new Set(['starlite.progress', 'starlite.skirmish']);
+function storageKey(key) {
+  return PROFILE_KEYS.has(key) && typeof couchProfileKey === 'function' ? couchProfileKey(key) : key;
+}
 function safeStorageGet(key, fallback) {
   try {
-    const v = localStorage.getItem(key);
+    const v = localStorage.getItem(storageKey(key));
     return v == null ? fallback : JSON.parse(v);
   } catch (e) { return fallback; }
 }
 function safeStorageSet(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* private mode etc. */ }
+  try { localStorage.setItem(storageKey(key), JSON.stringify(value)); } catch (e) { /* private mode etc. */ }
 }
